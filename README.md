@@ -2,6 +2,12 @@
 
 This package makes it easy to build scikit-learn compatible business-rule estimators.
 
+# Install
+
+```sh
+git clone https://github.com/oegedijk/rule_estimator.git
+pip install -e .
+```
 
 # Example
 
