@@ -19,15 +19,7 @@ There are two main usecases for this:
 # Install
 
 ```sh
-git clone https://github.com/oegedijk/rule_estimator.git
-cd rule_estimator
-pip install -e .
-```
-
-or 
-
-```sh
-pip install git+https://github.com/oegedijk/rule_estimator.git
+pip install rule-estimator
 ```
 
 # Example
