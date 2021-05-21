@@ -40,7 +40,7 @@ class GreaterThan(BusinessRule):
         return np.where(X[self.col] > self.cutoff, self.prediction, self.default)
 
     def __rulerepr__(self):
-        return f"If {self.col} > {self.cutoff} then predict {self.prediction}"
+        return f"GreaterThan: If {self.col} > {self.cutoff} then predict {self.prediction}"
 
 
 class GreaterEqualThan(BusinessRule):
@@ -51,7 +51,7 @@ class GreaterEqualThan(BusinessRule):
         return np.where(X[self.col] >= self.cutoff, self.prediction, self.default)
 
     def __rulerepr__(self):
-        return f"If {self.col} >= {self.cutoff} then predict {self.prediction}"
+        return f"GreaterEqualThan: If {self.col} >= {self.cutoff} then predict {self.prediction}"
 
 
 class LesserThan(BusinessRule):
@@ -62,7 +62,7 @@ class LesserThan(BusinessRule):
         return np.where(X[self.col] < self.cutoff, self.prediction, self.default)
 
     def __rulerepr__(self):
-        return f"If {self.col} < {self.cutoff} then predict {self.prediction}"
+        return f"LesserThan: If {self.col} < {self.cutoff} then predict {self.prediction}"
 
 
 class LesserEqualThan(BusinessRule):
@@ -73,7 +73,7 @@ class LesserEqualThan(BusinessRule):
         return np.where(X[self.col] <= self.cutoff, self.prediction, self.default)
 
     def __rulerepr__(self):
-        return f"If {self.col} <= {self.cutoff} then predict {self.prediction}"
+        return f"LesserEqualThan: If {self.col} <= {self.cutoff} then predict {self.prediction}"
 
 
 
@@ -95,7 +95,7 @@ class CaseWhen(BusinessRule):
         return y
 
     def __rulerepr__(self):
-        return "CaseWhen"
+        return "CaseWhen: go through list of BusinessRules one-by-one"
 
 
 class GreaterThanNode(BinaryDecisionNode):
