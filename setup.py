@@ -2,8 +2,8 @@ from setuptools import setup, find_packages
 
 setup(
     name='rule_estimator',
-    version='0.0.1',
-    packages=['rule_estimator'],
+    version='0.1.2',
+    packages=find_packages(),
     description='Scikit-learn compatible business rule estimator',
     long_description='Scikit-learn compatible business rule estimator',
     license='Apache-2',
