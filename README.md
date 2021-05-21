@@ -256,6 +256,27 @@ print(classification_report(y, rules_plus_final_estimator.predict(X)))
 weighted avg       0.99      0.99      0.99       150
 ```
 
+# Defined BusinessRules
+
+Currently the following BusinessRules are defined in the library:
+
+
+-  `DummyRule`: simply always assign a `default` label
+-  `GreaterThan`: if `col` is greater than `cutoff` assign `prediction`
+-  `GreaterEqualThan`: if `col` is greater or equal than `cutoff` assign `prediction`
+-  `LesserThan`: if `col` if lesser then `cutoff` assign `prediction`
+-  `LesserEqualThan`: if `col` if lesser or equal than `cutoff` assign `prediction`
+-  `CaseWhen`: process a list of `BusinessRules` one-by-one, if a rule applies
+    assign the prediction, then pass the remaining rows to the next Rule, etc.
+    
+There are also four `BinaryDecisionNodes` defined. These evaluate a condition,
+and if the condition holds pass the prediction off to `BusinessRule` `if_true`,
+and otherwise to `BusinessRule` `if_false`:
+
+-  `GreaterThanNode`
+-  `GreaterEqualThanNode`
+-  `LesserThanNode`
+-  `LesserEqualThanNode`
 # Defining your own BusinessRules
 
 It is easy to define and add your own BusinessRules, the basic structure is:

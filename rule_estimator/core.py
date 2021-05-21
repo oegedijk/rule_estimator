@@ -175,10 +175,10 @@ class RuleEstimator(BusinessRule):
 class RuleClassifier(RuleEstimator):
 
     def __rulerepr__(self):
-        return "RulesClassifier"
+        return "RuleClassifier"
 
 
 class RuleRegressor(RuleEstimator):
 
     def __rulerepr__(self):
-        return "RulesRegressor"
+        return "RuleRegressor"
