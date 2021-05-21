@@ -1,10 +1,12 @@
 __all__ = [
-    'DefaultRule',
+    'CaseWhen',
+    'DummyRule',
     'GreaterThan', 
     'GreaterEqualThan', 
     'LesserThan', 
     'LesserEqualThan',
-    'CaseWhen', 
+    
+
     'GreaterThanNode', 
     'GreaterEqualThanNode', 
     'LesserThanNode', 
@@ -19,7 +21,7 @@ import pandas as pd
 from .core import BusinessRule, BinaryDecisionNode
 
 
-class DefaultRule(BusinessRule):
+class DummyRule(BusinessRule):
     def __init__(self, default=None):
         super().__init__()
 
@@ -27,7 +29,7 @@ class DefaultRule(BusinessRule):
         return np.full(len(X), self.default)
 
     def __rulerepr__(self):
-        return f"Always predict {self.default}"
+        return f"DummyRule: Always predict {self.default}"
 
 
 class GreaterThan(BusinessRule):
@@ -76,15 +78,20 @@ class LesserEqualThan(BusinessRule):
 
 
 class CaseWhen(BusinessRule):
+    """Execute a list of rules one-by-one. 
+
+    Args:
+        BusinessRule ([type]): [description]
+    """
     def __init__(self, rules:List[BusinessRule], default=None):
         super().__init__()
 
     def predict(self, X):
         y = np.full(len(X), np.nan)
         for rule in self.rules:
-            y = np.where(np.isnan(y), rule.predict(X), y)
-
-        y = np.where(np.isnan(y), self.default, y)
+            y[np.isnan(y)] = rule.predict(X[np.isnan(y)])
+        if not np.isnan(self.default):
+            y = np.where(np.isnan(y), self.default, y)
         return y
 
     def __rulerepr__(self):
