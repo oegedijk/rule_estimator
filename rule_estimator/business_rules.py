@@ -1,5 +1,6 @@
 __all__ = [
-    'DummyRule',
+    'EmptyRule',
+    'PredictionRule',
     'GreaterThan', 
     'GreaterEqualThan', 
     'LesserThan', 
@@ -19,7 +20,17 @@ import pandas as pd
 from .core import BusinessRule, BinaryDecisionNode
 
 
-class DummyRule(BusinessRule):
+class EmptyRule(BusinessRule):
+    def __init__(self, prediction=None, default=None):
+        super().__init__()
+
+    def __rule__(self, X):
+        return pd.Series(np.full(len(X), False))
+
+    def __rulerepr__(self):
+        return f"EmptyRule: Always predict {self.default}"
+
+class PredictionRule(BusinessRule):
     def __init__(self, prediction=None):
         super().__init__()
 
@@ -27,7 +38,7 @@ class DummyRule(BusinessRule):
         return pd.Series(np.full(len(X), True))
 
     def __rulerepr__(self):
-        return f"Always predict {self.prediction}"
+        return f"PredictionRule: Always predict {self.prediction}"
 
 
 class GreaterThan(BusinessRule):
@@ -38,7 +49,7 @@ class GreaterThan(BusinessRule):
         return X[self.col] > self.cutoff
 
     def __rulerepr__(self):
-        return f"If {self.col} > {self.cutoff} then predict {self.prediction}"
+        return f"GreaterThan: If {self.col} > {self.cutoff} then predict {self.prediction}"
 
 
 class GreaterEqualThan(BusinessRule):
@@ -49,7 +60,7 @@ class GreaterEqualThan(BusinessRule):
         return X[self.col] >= self.cutoff
 
     def __rulerepr__(self):
-        return f"If {self.col} >= {self.cutoff} then predict {self.prediction}"
+        return f"GreaterEqualThan: If {self.col} >= {self.cutoff} then predict {self.prediction}"
 
 
 class LesserThan(BusinessRule):
@@ -60,7 +71,7 @@ class LesserThan(BusinessRule):
         return X[self.col] < self.cutoff
 
     def __rulerepr__(self):
-        return f"If {self.col} < {self.cutoff} then predict {self.prediction}"
+        return f"LesserThan: If {self.col} < {self.cutoff} then predict {self.prediction}"
 
 
 class LesserEqualThan(BusinessRule):
@@ -71,50 +82,50 @@ class LesserEqualThan(BusinessRule):
         return X[self.col] <= self.cutoff
 
     def __rulerepr__(self):
-        return f"If {self.col} <= {self.cutoff} then predict {self.prediction}"
+        return f"LesserEqualThan: If {self.col} <= {self.cutoff} then predict {self.prediction}"
 
 
 class GreaterThanNode(BinaryDecisionNode):
     def __init__(self, col:str, cutoff:float,
-                 if_true:BusinessRule, if_false:BusinessRule, default=None):
+                 if_true:BusinessRule=None, if_false:BusinessRule=None, default=None):
         super().__init__()
 
     def __rule__(self, X:pd.DataFrame)->pd.Series:
         return X[self.col] > self.cutoff
 
     def __rulerepr__(self)->str:
-        return f"BinaryDecisionNode {self.col} > {self.cutoff}"
+        return f"GreaterThanNode: {self.col} > {self.cutoff}"
 
 
 class GreaterEqualThanNode(BinaryDecisionNode):
     def __init__(self, col:str, cutoff:float,
-                 if_true:BusinessRule, if_false:BusinessRule, default=None):
+                 if_true:BusinessRule=None, if_false:BusinessRule=None, default=None):
         super().__init__()
 
     def __rule__(self, X:pd.DataFrame)->pd.Series:
         return X[self.col] >= self.cutoff
 
     def __rulerepr__(self)->str:
-        return f"BinaryDecisionNode {self.col} >= {self.cutoff}"
+        return f"GreaterEqualThanNode: {self.col} >= {self.cutoff}"
 
 class LesserThanNode(BinaryDecisionNode):
     def __init__(self, col:str, cutoff:float,
-                 if_true:BusinessRule, if_false:BusinessRule, default=None):
+                 if_true:BusinessRule=None, if_false:BusinessRule=None, default=None):
         super().__init__()
 
     def __rule__(self, X:pd.DataFrame)->pd.Series:
         return X[self.col] < self.cutoff
 
     def __rulerepr__(self)->str:
-        return f"BinaryDecisionNode {self.col} < {self.cutoff}"
+        return f"LesserThanNode: {self.col} < {self.cutoff}"
 
 class LesserEqualThanNode(BinaryDecisionNode):
     def __init__(self, col:str, cutoff:float, 
-                 if_true:BusinessRule, if_false:BusinessRule, default=None):
+                 if_true:BusinessRule=None, if_false:BusinessRule=None, default=None):
         super().__init__()
 
     def __rule__(self, X:pd.DataFrame)->pd.Series:
         return X[self.col] <= self.cutoff
 
     def __rulerepr__(self)->str:
-        return f"BinaryDecisionNode {self.col} <= {self.cutoff}"
+        return f"LesserEqualThanNode: {self.col} <= {self.cutoff}"

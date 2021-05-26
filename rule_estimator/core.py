@@ -15,8 +15,7 @@ import pandas as pd
 
 from sklearn.base import BaseEstimator
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
-from sklearn.metrics import accuracy_score, precision_score, recall_score, r2_score
-
+from sklearn.metrics import accuracy_score, precision_score, recall_score, mean_squared_error
 
 from igraph import Graph
 
@@ -80,14 +79,13 @@ class BusinessRule(BaseEstimator, Storable):
         assert hasattr(self, "__rule__"), "You need to implement the __rule__ method first!"
         return np.where(self.__rule__(X), self.prediction, self.default)
     
-    def _score_rule(self, y:np.ndarray, y_preds:np.ndarray, mask:np.ndarray, 
-                    prediction, default, 
-                    scores_df:pd.DataFrame=None, is_classifier:bool=False)->pd.DataFrame:
+    def _score_rule(self, y, y_preds, mask, prediction, default, 
+                    scores_df=None, is_classifier=False)->pd.DataFrame:
         if scores_df is None:
             scores_df = pd.DataFrame(columns=[
                 'rule_id', 'name','description', 'prediction', 
                 'n_inputs', 'n_outputs','coverage', 
-                'accuracy' if is_classifier else 'r2'
+                'accuracy' if is_classifier else 'rmse'
             ])
         score_dict = dict(
                 rule_id=self._rule_id, name=self.__class__.__name__,
@@ -104,9 +102,9 @@ class BusinessRule(BaseEstimator, Storable):
                 score_dict['accuracy'] = np.nan
         else:
             if len(y[mask]) > 0:
-                score_dict['r2'] = r2_score(y[mask], y_preds[mask])
+                score_dict['rmse'] = mean_squared_error(y[mask], y_preds[mask], squared=False)
             else:
-                score_dict['r2'] = np.nan
+                score_dict['rmse'] = np.nan
         
         scores_df = scores_df.append(score_dict, ignore_index=True)
         
@@ -127,10 +125,10 @@ class BusinessRule(BaseEstimator, Storable):
                     default_score_dict['accuracy'] = np.nan      
             else:
                 if np.invert(mask).sum() > 0:
-                    default_score_dict['r2'] = r2_score(
-                        y[~mask], np.full(np.invert(mask).sum(), default))
+                    default_score_dict['rmse'] = mean_squared_error(
+                        y[~mask], np.full(np.invert(mask).sum(), default), squared=False)
                 else:
-                    default_score_dict['r2'] = np.nan
+                    default_score_dict['rmse'] = np.nan
                     
             scores_df = scores_df.append(default_score_dict, ignore_index=True)
         return scores_df
@@ -411,12 +409,12 @@ class BinaryDecisionNode(BusinessRule):
             
         assert hasattr(self, "if_true")
         if self.if_true is None:
-            self.if_true = DummyRule(prediction=np.nan)
+            self.if_true = EmptyRule()
         assert isinstance(self.if_true, BusinessRule)
         
         assert hasattr(self, "if_false")
         if self.if_false is None:
-            self.if_false = DummyRule(prediction=np.nan)
+            self.if_false = EmptyRule()
         assert isinstance(self.if_false, BusinessRule)
         
         
@@ -594,8 +592,8 @@ class RuleEstimator(BusinessRule):
                  final_estimator:BaseEstimator=None, fit_remaining_only:bool=True):
         super().__init__()
         if rules is None:
-            print("WARNING: No rules passed! Setting a DummyRule that predicts np.nan!")
-            rules = DummyRule()
+            print("WARNING: No rules passed! Setting a EmptyRule that predicts nan!")
+            self.rules = EmptyRule()
         
         self._reset_rule_ids()
         self.fitted = False
@@ -750,7 +748,7 @@ class RuleClassifier(RuleEstimator):
         return self.rules.score_rule(X, y, is_classifier=True)
     
     def suggest_rule(self, rule_id:int, X:pd.DataFrame, y:Union[pd.Series, np.ndarray], 
-                     after:bool=False)->str:
+                     kind='rule', after:bool=False)->BusinessRule:
         if after:
             X, y = self.get_rule_leftover(rule_id, X, y)
             if len(X) == 0:
@@ -759,12 +757,18 @@ class RuleClassifier(RuleEstimator):
             X, y = self.get_rule_input(rule_id, X, y)
             
         dt = DecisionTreeClassifier(max_depth=1, max_features=1.0, max_leaf_nodes=2).fit(X, y)
+        y_most_frequent = pd.Series(y).value_counts().index[0]
         col = X.columns.tolist()[dt.tree_.feature[0]]
         cutoff = dt.tree_.threshold[0]
-        prediction = dt.tree_.value[1].argmax()
-        default = dt.tree_.value[2].argmax()
-        
-        return f"LesserThan(col={col}, cutoff={cutoff}, prediction={prediction}, default={default})"
+        prediction = dt.classes_[dt.tree_.value[1].argmax()]
+        default = dt.classes_[dt.tree_.value[2].argmax()]
+
+        if kind=='rule':
+            return f"LesserThan(col='{col}', cutoff={cutoff}, prediction={prediction}, default={default})"
+        elif kind=='prediction':
+            return f"PredictionRule(prediction={y_most_frequent})"
+        elif kind=='node':
+            return f"LesserThanNode(col='{col}', cutoff={cutoff})"
 
     def __rulerepr__(self)->str:
         return "RuleClassifier"
@@ -772,7 +776,7 @@ class RuleClassifier(RuleEstimator):
 class RuleRegressor(RuleEstimator):
     
     def suggest_rule(self, rule_id:int, X:pd.DataFrame, y:Union[pd.Series, np.ndarray], 
-                     after:bool=False)->str:
+                     kind='rule', after:bool=False)->BusinessRule:
         if after:
             X, y = self.get_rule_leftover(rule_id, X, y)
             if len(X) == 0:
@@ -780,14 +784,19 @@ class RuleRegressor(RuleEstimator):
         else:
             X, y = self.get_rule_input(rule_id, X, y)
             
-        dt = DecisionTreeClassifier(max_depth=1, max_features=1.0, max_leaf_nodes=2).fit(X, y)
-
+        dt = DecisionTreeRegressor(max_depth=1, max_features=1.0, max_leaf_nodes=2).fit(X, y)
+        y_mean = pd.Series(y).mean()
         col = X.columns.tolist()[dt.tree_.feature[0]]
         cutoff = dt.tree_.threshold[0]
         prediction = dt.tree_.value[1].mean()
         default = dt.tree_.value[2].mean()
         
-        return f"LesserThan(col={col}, cutoff={cutoff}, prediction={prediction}, default={default})"
+        if kind=='rule':
+            return f"LesserThan(col='{col}', cutoff={cutoff}, prediction={prediction}, default={default})"
+        elif kind=='prediction':
+            return f"PredictionRule(prediction={y_mean})"
+        elif kind=='node':
+            return f"LesserThanNode(col='{col}', cutoff={cutoff})"
     
     def __rulerepr__(self)->str:
         return "RuleRegressor"
