@@ -3,7 +3,7 @@ __all__ = ['Storable']
 import sys
 from importlib import import_module
 from pathlib import Path
-from typing import Union, List, Dict
+from typing import Union, List, Dict, Tuple
 
 import oyaml as yaml
 
@@ -11,7 +11,7 @@ import oyaml as yaml
 def encode_storables(obj):
     """replaces all storable instances (child classes of Storable that
     have a ._stored_params attribute) in obj with a dict specifying
-    module, name, (description) and params. In conjunction with decode_storables(),
+    module, name and params. In conjunction with decode_storables(),
     this allows instances with storable attributes to be stored to and
     loaded from yaml.
 
@@ -37,8 +37,7 @@ def encode_storables(obj):
 
 
 def decode_storables(obj):
-    """replaces all dict-encoded storables in obj with the appropriate instance
-    by importing them based on name and module.
+    """replaces all dict-encoded storables in obj with the appropriate function
 
     Works recursively through sub-list and sub-dicts"""
     if isinstance(obj, dict) and '__businessrule__' in obj:
@@ -50,6 +49,26 @@ def decode_storables(obj):
     elif isinstance(obj, list):
         return [decode_storables(o) for o in obj]
     return obj
+
+
+def encode_storables_to_python_code(obj, tabs=0)->str:
+    """Outputs python code needed to generate a given Storable object.
+    Replaces all storable instances (child classes of Storable that
+    have a ._stored_params attribute) in into their their name and params.
+    Works recursively through sub-list and sub-dicts.
+    """
+    linestart = "\n" +"\t"*tabs
+    indent = "\n" +"\t"*(tabs+1)
+    
+    if hasattr(obj, "_stored_params"):
+        return f"{linestart}{obj.__class__.__name__}({indent}" + f',{indent}'.join([f'{k}={encode_storables_to_python_code(v, tabs+1)}' for k, v in obj._stored_params.items()]) +f"{linestart})"     
+    if isinstance(obj, dict):
+        return f"{{{', '.join([f'{k}={encode_storables_to_python_code(v, tabs+1)}' for k, v in dd.items()])}}}"
+    elif isinstance(obj, list):
+        return f"[{', '.join([encode_storables_to_python_code(o, tabs+1) for o in obj])}]"
+    elif isinstance(obj, str):
+        return f"'{obj}'"
+    return str(obj)
 
 
 class Storable:
@@ -83,15 +102,14 @@ class Storable:
             setattr(self, name, value)
             self._stored_params[name] = value
 
-    def to_yaml(self, filepath:Union[Path, str]=None, return_dict:bool=False, comment:str=None):
+    def to_yaml(self, filepath:Union[Path, str]=None, 
+                return_dict:bool=False, comment:str=None)->Union[str, None]:
         """Store object to a yaml format.
 
         Args:
             filepath: file where to store the .yaml file. If None then just return the
                 yaml as a str.
             return_dict: instead of return a yaml str, return the raw dict.
-            comment: add a comment at the top of the yaml file. Is used to
-                add businessrule.describe() at the top.
 
         """
         config_dict = encode_storables(self)
@@ -110,6 +128,7 @@ class Storable:
                 f.write(comment_str + yaml_str)
         else:
             return comment_str + yaml_str
+        #yaml.dump(config_dict, open(Path(filepath), "w"))
 
     @classmethod
     def from_yaml(cls, filepath:Union[Path, str]=None, config:Union[Dict, str]=None):
@@ -132,3 +151,6 @@ class Storable:
 
         config = yaml.safe_load(open(str(Path(filepath)), "r"))
         return decode_storables(config)
+    
+    def to_code(self)->str:
+        return encode_storables_to_python_code(self)

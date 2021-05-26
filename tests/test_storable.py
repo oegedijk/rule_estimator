@@ -36,6 +36,11 @@ def test_child_stored_params():
 def test_to_yaml():
     child = ChildStorable("Annie", "Bob")
     assert isinstance(child.to_yaml(), str)
+
+def test_to_code():
+    child = ChildStorable("Annie", "Bob")
+    assert isinstance(child.to_code(), str)
+    assert child.to_code().startswith("ChildStorable")
     
 
 def test_store_yaml():
