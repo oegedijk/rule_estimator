@@ -8,10 +8,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from sklearn.base import BaseEstimator
-from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
-from sklearn.metrics import accuracy_score, precision_score, recall_score, mean_squared_error
-
 from igraph import Graph
 
 from .storable import Storable
