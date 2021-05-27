@@ -13,7 +13,7 @@ import pandas as pd
 
 from igraph import Graph
 
-from .core import BusinessRule
+from .businessrule import BusinessRule
 from .rules import EmptyRule
 
 
