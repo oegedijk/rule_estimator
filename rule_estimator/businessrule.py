@@ -8,6 +8,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from sklearn.base import BaseEstimator
+from sklearn.metrics import accuracy_score, mean_squared_error
+
 from igraph import Graph
 
 from .storable import Storable
