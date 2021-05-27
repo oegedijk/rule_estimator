@@ -14,6 +14,7 @@ import pandas as pd
 from igraph import Graph
 
 from .core import BusinessRule
+from .rules import EmptyRule
 
 
 class BinaryDecisionNode(BusinessRule):
