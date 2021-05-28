@@ -4,6 +4,8 @@ __all__ = [
     'GreaterEqualThanNode', 
     'LesserThanNode', 
     'LesserEqualThanNode', 
+    'MultiRangeAndNode',
+    'MultiRangeOrNode'
 ]
 
 from typing import Union, List, Dict, Tuple
@@ -168,10 +170,11 @@ class BinaryDecisionNode(BusinessRule):
         
     def replace_rule(self, rule_id:int, new_rule:BusinessRule)->None:
         super().replace_rule(rule_id, new_rule)
-        self.if_true.replace_rule(rule_id, new_rule)
-        self.if_false.replace_rule(rule_id, new_rule)
+        if hasattr(self, "if_true"):
+            self.if_true.replace_rule(rule_id, new_rule)
+        if hasattr(self, "if_false"):
+            self.if_false.replace_rule(rule_id, new_rule)
        
-    
     def get_rule_params(self, rule_id:int)->dict:
         params = super().get_rule_params(rule_id)
         if params is not None: 
@@ -190,6 +193,12 @@ class BinaryDecisionNode(BusinessRule):
         
         self.if_true.set_rule_params(rule_id, **params)
         self.if_false.set_rule_params(rule_id, **params)
+
+    def _get_casewhens(self, casewhens:dict=None):
+        casewhens = super()._get_casewhens(casewhens)
+        casewhens = self.if_true._get_casewhens(casewhens)
+        casewhens = self.if_false._get_casewhens(casewhens)
+        return casewhens
         
     def add_to_igraph(self, graph:Graph=None)->Graph:
         graph = super().add_to_igraph(graph)
@@ -250,3 +259,85 @@ class LesserEqualThanNode(BinaryDecisionNode):
 
     def __rulerepr__(self)->str:
         return f"LesserEqualThanNode: {self.col} <= {self.cutoff}"
+
+
+class MultiRangeAndNode(BusinessRule):
+    def __init__(self, range_dict, if_true:BusinessRule=None, if_false:BusinessRule=None, default=None):
+        """
+        Switches to if_true rule if all range conditions hold for all cols in
+        range_dict. range_dict can contain multiple ranges per col.
+
+        range_dict should be of the format 
+        ```
+        range_dict = {
+            'petal length (cm)': [[4.1, 4.7], [5.2, 7.5]],
+            'petal width (cm)': [1.6, 2.6]
+        }
+        ```
+
+        """
+        super().__init__()
+    
+    def __rule__(self, X):
+        
+        def AND_masks(masks):
+            for i, mask in enumerate(masks):
+                combined_mask = mask if i == 0 else combined_mask & mask
+            return combined_mask
+        
+        def OR_masks(masks):
+            for i, mask in enumerate(masks):
+                combined_mask = mask if i == 0 else combined_mask | mask
+            return combined_mask
+        
+        def generate_range_mask(X, col, col_range):
+            if isinstance(col_range[0], list):
+                return OR_masks([(X[col] > l) & (X[col] < h) for l, h in col_range])
+            return (X[col] > col_range[0]) & (X[col] < col_range[1])
+        
+        return AND_masks([generate_range_mask(X, col, col_range) for col, col_range in self.range_dict.items()])
+        
+    def __rulerepr__(self):
+        return ("MultiRangeAndNode: If " 
+                    + " AND ".join([f"{k} in {v}" for k, v in self.range_dict.items()]))
+
+
+class MultiRangeOrNode(BusinessRule):
+    def __init__(self, range_dict, if_true:BusinessRule=None, if_false:BusinessRule=None, default=None):
+        """
+        Switches to if_true rule if any range conditions hold for any cols in
+        range_dict. range_dict can contain multiple ranges per col.
+
+        range_dict should be of the format 
+        ```
+        range_dict = {
+            'petal length (cm)': [[4.1, 4.7], [5.2, 7.5]],
+            'petal width (cm)': [1.6, 2.6]
+        }
+        ```
+
+        """
+        super().__init__()
+    
+    def __rule__(self, X):
+        
+        def AND_masks(masks):
+            for i, mask in enumerate(masks):
+                combined_mask = mask if i == 0 else combined_mask & mask
+            return combined_mask
+        
+        def OR_masks(masks):
+            for i, mask in enumerate(masks):
+                combined_mask = mask if i == 0 else combined_mask | mask
+            return combined_mask
+        
+        def generate_range_mask(X, col, col_range):
+            if isinstance(col_range[0], list):
+                return OR_masks([(X[col] > l) & (X[col] < h) for l, h in col_range])
+            return (X[col] > col_range[0]) & (X[col] < col_range[1])
+        
+        return OR_masks([generate_range_mask(X, col, col_range) for col, col_range in self.range_dict.items()])
+        
+    def __rulerepr__(self):
+        return ("MultiRangeOrNode: If " 
+                    + " OR ".join([f"{k} in {v}" for k, v in self.range_dict.items()]))

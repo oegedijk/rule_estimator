@@ -30,7 +30,6 @@ pip install rule-estimator
 
 ```python
 from sklearn.datasets import load_iris
-from rule_estimator import *
 
 X, y = load_iris(return_X_y=True, as_frame=True)
 
@@ -44,6 +43,8 @@ For the remaining flowers we go through a CaseWhen list of a number of decision 
 Any flowers not labeled get the default label=1 (versicolor):
 
 ```python
+from rule_estimator import *
+
 model = RuleClassifier(
     LesserThanNode("petal length (cm)", 1.91, # BinaryDecisionNode
         if_true=PredictionRule(prediction=0), # DummyRule: always predict 0

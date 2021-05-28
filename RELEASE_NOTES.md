@@ -1,3 +1,30 @@
+
+
+## Version 0.2.1:
+### Breaking Changes
+- 
+- 
+
+### New Features
+- new `estimator.parallel_coordinates(X, y, rule_id)` method to plot a parallel 
+    coordinates plot of data entering rule `rule_id`.
+- new rules: `MultiRangeAndRule` and `MultiRangeOrRule`.
+- new nodes: `MultiRangeAndNode` and `MultiRangeOrNode`.
+
+### Bug Fixes
+- Fixes bugs with `replace_rule` and `append_rule`
+-
+
+### Improvements
+- `append_rule` now also inserts in the correct position when `rule_id` is
+    inside a `CaseWhen` rule
+-
+
+### Other Changes
+-
+-
+
+
 ## version 0.2:
 ### Breaking Changes
 - Custom rules are now defined with `__rule__` method that returns a boolean mask

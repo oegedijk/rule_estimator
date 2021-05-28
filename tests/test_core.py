@@ -89,6 +89,10 @@ def test_rule_classifier(model, data):
 def test_model_plot(model):
     assert isinstance(model.plot(), Figure)
 
+def test_model_plot(model, data):
+    X, y = data
+    assert isinstance(model.parallel_coordinates(X, y), Figure)
+
 def test_score_rules(model, data):
     X, y = data
     assert isinstance(model.score_rules(X, y), pd.DataFrame)

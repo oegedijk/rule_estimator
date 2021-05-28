@@ -149,10 +149,10 @@ class BusinessRule(BaseEstimator, Storable):
             return self
         
     def replace_rule(self, rule_id:int, new_rule)->None:
-        assert isinstance(new_rule, BusinessRule)
         if self._rule_id is not None and self._rule_id == rule_id:
+            assert isinstance(new_rule, BusinessRule)
             self.__class__ = new_rule.__class__
-            self.__dict__.update(new_rule.__dict__)
+            self.__dict__ = new_rule.__dict__
             
     def get_rule_params(self, rule_id:int)->dict:
         if self._rule_id is not None and self._rule_id == rule_id:
@@ -199,6 +199,12 @@ class BusinessRule(BaseEstimator, Storable):
             if k in self._stored_params:
                 self._stored_params[k] = v
                 setattr(self, k, v)
+
+    def _get_casewhens(self, casewhens:dict=None):
+        if casewhens is None:
+            return {}
+        else:
+            return casewhens
                 
     def add_to_igraph(self, graph:Graph=None)->Graph:
         if graph is None:
