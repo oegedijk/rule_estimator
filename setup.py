@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='rule_estimator',
-    version='0.2.0',
+    version='0.2.1',
     packages=find_packages(),
     description='Scikit-learn compatible business rule estimator',
     long_description='Scikit-learn compatible business rule estimator',
