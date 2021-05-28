@@ -285,12 +285,12 @@ class MultiRangeAndRule(BusinessRule):
         
         def AND_masks(masks):
             for i, mask in enumerate(masks):
-                combined_mask = mask if i == 0 else combined_mask & mask
+                combined_mask = mask if i == 0 else combined_mask & mask # noqa: F82
             return combined_mask
         
         def OR_masks(masks):
             for i, mask in enumerate(masks):
-                combined_mask = mask if i == 0 else combined_mask | mask
+                combined_mask = mask if i == 0 else combined_mask | mask # noqa: F82
             return combined_mask
         
         def generate_range_mask(X, col, col_range):
@@ -327,12 +327,12 @@ class MultiRangeOrRule(BusinessRule):
         
         def AND_masks(masks):
             for i, mask in enumerate(masks):
-                combined_mask = mask if i == 0 else combined_mask & mask
+                combined_mask = mask if i == 0 else combined_mask & mask # noqa: F82
             return combined_mask
         
         def OR_masks(masks):
             for i, mask in enumerate(masks):
-                combined_mask = mask if i == 0 else combined_mask | mask
+                combined_mask = mask if i == 0 else combined_mask | mask # noqa: F82
             return combined_mask
         
         def generate_range_mask(X, col, col_range):
