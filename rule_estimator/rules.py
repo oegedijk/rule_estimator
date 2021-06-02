@@ -17,25 +17,16 @@ import pandas as pd
 
 from igraph import Graph
 
-from .businessrule import BusinessRule
+from .businessrule import BusinessRule, generate_range_mask
 
 
 class CaseWhen(BusinessRule):
-    def __init__(self, rules:List[BusinessRule], default=None):
+    def __init__(self, rules:List[BusinessRule]=None, default=None):
         super().__init__()
+        if rules is None:
+            self.rules = []
         if not isinstance(self.rules, list):
             self.rules = [self.rules]
-
-    def append_rule(self, new_rule:BusinessRule, rule_id:int=None)->None:
-        if rule_id is not None:
-            rule_ids = [rule._rule_id for rule in self.rules]
-            if rule_id in rule_ids:
-                self.rules.insert(rule_ids.index(rule_id)+1, new_rule)
-            else:
-                raise ValueError(f"rule_id {rule_id} can not be found in this CaseWhen!")
-        else:
-            self.rules.append(new_rule)
-        self._stored_params['rules'] = self.rules
         
     def predict(self, X:pd.DataFrame)->np.ndarray:
         y = np.full(len(X), np.nan)
@@ -154,12 +145,25 @@ class CaseWhen(BusinessRule):
         else:
             return None
         
+    def append_rule(self, new_rule:BusinessRule, rule_id:int=None)->None:
+        if rule_id is not None:
+            rule_ids = [rule._rule_id for rule in self.rules]
+            if rule_id in rule_ids:
+                self.rules.insert(rule_ids.index(rule_id)+1, new_rule)
+            else:
+                raise ValueError(f"rule_id {rule_id} can not be found in this CaseWhen!")
+        else:
+            self.rules.append(new_rule)
+        self._stored_params['rules'] = self.rules
+
     def replace_rule(self, rule_id:int, new_rule:BusinessRule)->None:
-        super().replace_rule(rule_id, new_rule)
+        replace_rule = super().replace_rule(rule_id, new_rule)
         
         if hasattr(self, "rules"):
             for rule in self.rules:
-                rule.replace_rule(rule_id, new_rule)
+                if replace_rule is None:
+                    replace_rule = rule.replace_rule(rule_id, new_rule)
+        return replace_rule
             
     def get_rule_params(self, rule_id:int)->dict:
         if self._rule_id is not None and self._rule_id == rule_id:
@@ -188,11 +192,12 @@ class CaseWhen(BusinessRule):
             
     def add_to_igraph(self, graph:Graph=None)->Graph:
         graph = super().add_to_igraph(graph)
-
+        previous_rule_id = self._rule_id
         for rule in self.rules:
             graph = rule.add_to_igraph(graph)
             if self._rule_id is not None and rule._rule_id is not None:
-                graph.add_edge(self._rule_id, rule._rule_id)
+                graph.add_edge(previous_rule_id, rule._rule_id, casewhen=True)
+                previous_rule_id = rule._rule_id
         return graph
           
     def __rulerepr__(self)->str:
@@ -282,23 +287,7 @@ class MultiRangeAndRule(BusinessRule):
         super().__init__()
     
     def __rule__(self, X):
-        
-        def AND_masks(masks):
-            for i, mask in enumerate(masks):
-                combined_mask = mask if i == 0 else combined_mask & mask # noqa: F82
-            return combined_mask
-        
-        def OR_masks(masks):
-            for i, mask in enumerate(masks):
-                combined_mask = mask if i == 0 else combined_mask | mask # noqa: F82
-            return combined_mask
-        
-        def generate_range_mask(X, col, col_range):
-            if isinstance(col_range[0], list):
-                return OR_masks([(X[col] > l) & (X[col] < h) for l, h in col_range])
-            return (X[col] > col_range[0]) & (X[col] < col_range[1])
-        
-        return AND_masks([generate_range_mask(X, col, col_range) for col, col_range in self.range_dict.items()])
+        return generate_range_mask(self.range_dict, X, kind='all')
         
     def __rulerepr__(self):
         return ("MultiRangeAndRule: If " 
@@ -323,25 +312,9 @@ class MultiRangeOrRule(BusinessRule):
         """
         super().__init__()
     
-    def __rule__(self, X):
-        
-        def AND_masks(masks):
-            for i, mask in enumerate(masks):
-                combined_mask = mask if i == 0 else combined_mask & mask # noqa: F82
-            return combined_mask
-        
-        def OR_masks(masks):
-            for i, mask in enumerate(masks):
-                combined_mask = mask if i == 0 else combined_mask | mask # noqa: F82
-            return combined_mask
-        
-        def generate_range_mask(X, col, col_range):
-            if isinstance(col_range[0], list):
-                return OR_masks([(X[col] > l) & (X[col] < h) for l, h in col_range])
-            return (X[col] > col_range[0]) & (X[col] < col_range[1])
-        
-        return OR_masks([generate_range_mask(X, col, col_range) for col, col_range in self.range_dict.items()])
-        
+    def __rule__(self, X):    
+        return generate_range_mask(self.range_dict, X, kind='any')
+
     def __rulerepr__(self):
         return ("MultiRangeOrRule: If " 
                     + " OR ".join([f"{k} in {v}" for k, v in self.range_dict.items()])

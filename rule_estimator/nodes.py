@@ -1,5 +1,5 @@
 __all__ = [
-    'BinaryDecisionNode',
+    'BinaryNode',
     'GreaterThanNode', 
     'GreaterEqualThanNode', 
     'LesserThanNode', 
@@ -15,11 +15,11 @@ import pandas as pd
 
 from igraph import Graph
 
-from .businessrule import BusinessRule
+from .businessrule import BusinessRule, generate_range_mask
 from .rules import EmptyRule
 
 
-class BinaryDecisionNode(BusinessRule):
+class BinaryNode(BusinessRule):
     def __init__(self):
         self._store_child_params(level=2)
         
@@ -169,11 +169,12 @@ class BinaryDecisionNode(BusinessRule):
             return None
         
     def replace_rule(self, rule_id:int, new_rule:BusinessRule)->None:
-        super().replace_rule(rule_id, new_rule)
-        if hasattr(self, "if_true"):
-            self.if_true.replace_rule(rule_id, new_rule)
-        if hasattr(self, "if_false"):
-            self.if_false.replace_rule(rule_id, new_rule)
+        replace_rule = super().replace_rule(rule_id, new_rule)
+        if replace_rule is None and hasattr(self, "if_true"):
+            replace_rule = self.if_true.replace_rule(rule_id, new_rule)
+        if replace_rule is None and hasattr(self, "if_false"):
+            replace_rule = self.if_false.replace_rule(rule_id, new_rule)
+        return replace_rule
        
     def get_rule_params(self, rule_id:int)->dict:
         params = super().get_rule_params(rule_id)
@@ -206,16 +207,16 @@ class BinaryDecisionNode(BusinessRule):
         self.if_false.add_to_igraph(graph)
         
         if self._rule_id is not None and self.if_true._rule_id is not None:
-            graph.add_edge(self._rule_id, self.if_true._rule_id)
+            graph.add_edge(self._rule_id, self.if_true._rule_id, binary_node="if_true")
         if self._rule_id is not None and self.if_false._rule_id is not None:
-            graph.add_edge(self._rule_id, self.if_false._rule_id)
+            graph.add_edge(self._rule_id, self.if_false._rule_id, binary_node="if_false")
         return graph
               
     def __rulerepr__(self):
-        return "BinaryDecisionNode"
+        return "BinaryNode"
 
 
-class GreaterThanNode(BinaryDecisionNode):
+class GreaterThanNode(BinaryNode):
     def __init__(self, col:str, cutoff:float,
                  if_true:BusinessRule=None, if_false:BusinessRule=None, default=None):
         super().__init__()
@@ -227,7 +228,7 @@ class GreaterThanNode(BinaryDecisionNode):
         return f"GreaterThanNode: {self.col} > {self.cutoff}"
 
 
-class GreaterEqualThanNode(BinaryDecisionNode):
+class GreaterEqualThanNode(BinaryNode):
     def __init__(self, col:str, cutoff:float,
                  if_true:BusinessRule=None, if_false:BusinessRule=None, default=None):
         super().__init__()
@@ -238,7 +239,7 @@ class GreaterEqualThanNode(BinaryDecisionNode):
     def __rulerepr__(self)->str:
         return f"GreaterEqualThanNode: {self.col} >= {self.cutoff}"
 
-class LesserThanNode(BinaryDecisionNode):
+class LesserThanNode(BinaryNode):
     def __init__(self, col:str, cutoff:float,
                  if_true:BusinessRule=None, if_false:BusinessRule=None, default=None):
         super().__init__()
@@ -249,7 +250,7 @@ class LesserThanNode(BinaryDecisionNode):
     def __rulerepr__(self)->str:
         return f"LesserThanNode: {self.col} < {self.cutoff}"
 
-class LesserEqualThanNode(BinaryDecisionNode):
+class LesserEqualThanNode(BinaryNode):
     def __init__(self, col:str, cutoff:float, 
                  if_true:BusinessRule=None, if_false:BusinessRule=None, default=None):
         super().__init__()
@@ -261,7 +262,7 @@ class LesserEqualThanNode(BinaryDecisionNode):
         return f"LesserEqualThanNode: {self.col} <= {self.cutoff}"
 
 
-class MultiRangeAndNode(BusinessRule):
+class MultiRangeAndNode(BinaryNode):
     def __init__(self, range_dict, if_true:BusinessRule=None, if_false:BusinessRule=None, default=None):
         """
         Switches to if_true rule if all range conditions hold for all cols in
@@ -279,30 +280,14 @@ class MultiRangeAndNode(BusinessRule):
         super().__init__()
     
     def __rule__(self, X):
-        
-        def AND_masks(masks):
-            for i, mask in enumerate(masks):
-                combined_mask = mask if i == 0 else combined_mask & mask # noqa: F82
-            return combined_mask
-        
-        def OR_masks(masks):
-            for i, mask in enumerate(masks):
-                combined_mask = mask if i == 0 else combined_mask | mask # noqa: F82
-            return combined_mask
-        
-        def generate_range_mask(X, col, col_range):
-            if isinstance(col_range[0], list):
-                return OR_masks([(X[col] > l) & (X[col] < h) for l, h in col_range])
-            return (X[col] > col_range[0]) & (X[col] < col_range[1])
-        
-        return AND_masks([generate_range_mask(X, col, col_range) for col, col_range in self.range_dict.items()])
+        return generate_range_mask(self.range_dict, X, kind='all')
         
     def __rulerepr__(self):
         return ("MultiRangeAndNode: If " 
                     + " AND ".join([f"{k} in {v}" for k, v in self.range_dict.items()]))
 
 
-class MultiRangeOrNode(BusinessRule):
+class MultiRangeOrNode(BinaryNode):
     def __init__(self, range_dict, if_true:BusinessRule=None, if_false:BusinessRule=None, default=None):
         """
         Switches to if_true rule if any range conditions hold for any cols in
@@ -320,23 +305,7 @@ class MultiRangeOrNode(BusinessRule):
         super().__init__()
     
     def __rule__(self, X):
-        
-        def AND_masks(masks):
-            for i, mask in enumerate(masks):
-                combined_mask = mask if i == 0 else combined_mask & mask # noqa: F82
-            return combined_mask
-        
-        def OR_masks(masks):
-            for i, mask in enumerate(masks):
-                combined_mask = mask if i == 0 else combined_mask | mask # noqa: F82
-            return combined_mask
-        
-        def generate_range_mask(X, col, col_range):
-            if isinstance(col_range[0], list):
-                return OR_masks([(X[col] > l) & (X[col] < h) for l, h in col_range])
-            return (X[col] > col_range[0]) & (X[col] < col_range[1])
-        
-        return OR_masks([generate_range_mask(X, col, col_range) for col, col_range in self.range_dict.items()])
+        return generate_range_mask(self.range_dict, X, kind='any')
         
     def __rulerepr__(self):
         return ("MultiRangeOrNode: If " 

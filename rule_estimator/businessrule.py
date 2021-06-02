@@ -51,6 +51,52 @@ def describe_businessrule(obj, spaces:int=0)->str:
     return rulerepr
 
 
+def generate_range_mask(range_dict:dict, X:pd.DataFrame, kind:str='all')->pd.Series:
+    """generates boolean mask for X based on range_dict dictionary. 
+
+        range_dict should be of the format 
+        ```
+        range_dict = {
+            'petal length (cm)': [[4.1, 4.7], [5.2, 7.5]],
+            'petal width (cm)': [1.6, 2.6]
+        }
+        ```
+
+    Args:
+        range_dict (dict): dictionary describing which ranges for which columns should be evaluated
+        X (pd.DataFrame): input dataframe
+        kind (str, optional): Only return True if range conditions hold for all cols ('all') 
+            or if range conditions hold for any column ('any'). Defaults to 'all'.
+
+    Returns:
+        pd.Series: boolean mask
+    """
+
+    def AND_masks(masks):
+        for i, mask in enumerate(masks):
+            combined_mask = mask if i == 0 else combined_mask & mask # noqa: F82
+        return combined_mask
+
+    def OR_masks(masks):
+        for i, mask in enumerate(masks):
+            combined_mask = mask if i == 0 else combined_mask | mask # noqa: F82
+        return combined_mask
+
+    def generate_range_mask(X, col, col_range):
+        if isinstance(col_range[0], list):
+            return OR_masks([(X[col] > l) & (X[col] < h) for l, h in col_range])
+        return (X[col] > col_range[0]) & (X[col] < col_range[1])
+    
+    if not range_dict:
+        return pd.Series(np.full(len(X), False), index=X.index)
+    if kind == 'all':
+        return AND_masks([generate_range_mask(X, col, col_range) for col, col_range in range_dict.items()])
+    elif kind == 'any':
+        return OR_masks([generate_range_mask(X, col, col_range) for col, col_range in range_dict.items()])
+    else:
+        raise ValueError("ValueError! Only kind='all' and kind='any' are supported!")
+
+
 class BusinessRule(BaseEstimator, Storable):
     def __init__(self, prediction=None, default=None):
         self._store_child_params(level=2)
@@ -153,6 +199,7 @@ class BusinessRule(BaseEstimator, Storable):
             assert isinstance(new_rule, BusinessRule)
             self.__class__ = new_rule.__class__
             self.__dict__ = new_rule.__dict__
+            return self
             
     def get_rule_params(self, rule_id:int)->dict:
         if self._rule_id is not None and self._rule_id == rule_id:
@@ -213,6 +260,8 @@ class BusinessRule(BaseEstimator, Storable):
             graph.vs.set_attribute_values('name', [])
             graph.vs.set_attribute_values('description', [])
             graph.vs.set_attribute_values('rule', [])
+            graph.es.set_attribute_values('casewhen', [])
+            graph.es.set_attribute_values('binary_node', [])
         graph.add_vertex(
             rule_id=self._rule_id,
             name=self.__class__.__name__,

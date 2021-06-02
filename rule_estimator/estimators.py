@@ -16,7 +16,7 @@ from sklearn.metrics import accuracy_score, mean_squared_error
 from igraph import Graph 
 
 from .businessrule import BusinessRule 
-from .nodes import BinaryDecisionNode
+from .nodes import BinaryNode
 from .rules import CaseWhen, EmptyRule
 
 
@@ -25,8 +25,8 @@ class RuleEstimator(BusinessRule):
                  final_estimator:BaseEstimator=None, fit_remaining_only:bool=True):
         super().__init__()
         if rules is None:
-            print("WARNING: No rules passed! Setting a EmptyRule that predicts nan!")
-            self.rules = EmptyRule()
+            self.rules = CaseWhen()
+            self._stored_params['rules'] = self.rules
         
         self._reset_rule_ids()
         self.fitted = False
@@ -82,18 +82,9 @@ class RuleEstimator(BusinessRule):
         self._reset_rule_ids()
         return self.rules.get_max_rule_id(max_rule_id=0)
 
-    def describe(self)->str:
-        """returns an indented high-level description of the system of rules
-        used by the estimator. Including rule_id's. 
-
-        Returns:
-            str: [description]
-        """
+    def _get_casewhens(self):
         self._reset_rule_ids()
-        description = super().describe()
-        if self.final_estimator is not None:
-            description += f"final_estimator = {self.final_estimator}\n"
-        return description
+        return self.rules._get_casewhens()
     
     def append_rule(self, rule_id:int, new_rule:BusinessRule)->None:
         """Appends a rule to the rule with rule_id. If the rule is a CaseWhen
@@ -109,50 +100,71 @@ class RuleEstimator(BusinessRule):
                 if rule_id in v:
                     return k
         self._reset_rule_ids()
-        casewhen_id  = get_casewhen_id(self._get_casewhens(), rule_id)
+
         rule = self.get_rule(rule_id)
+        casewhen_id  = get_casewhen_id(self._get_casewhens(), rule_id)
+
         if isinstance(rule, CaseWhen):
             rule.append_rule(new_rule)
+        elif isinstance(rule, EmptyRule):
+            new_rule = rule.replace_rule(rule._rule_id, new_rule)
         elif casewhen_id is not None:
             casewhen_rule = self.get_rule(casewhen_id)
             casewhen_rule.append_rule(new_rule, rule_id)
         else:
             self.replace_rule(rule_id, CaseWhen(rules=[deepcopy(rule), new_rule]))
         self._reset_rule_ids()
-        
-    def replace_binarynode_true_rule(self, rule_id:int, new_rule:BusinessRule)->None:
-        """Replace the if_true rule of a BinaryDecisionNode with new_rule
+        if isinstance(new_rule, BinaryNode):
+            return new_rule.if_true._rule_id
+        return new_rule._rule_id
+
+    def replace_rule(self, rule_id:int, new_rule:BusinessRule)->None:
+        """Replace rule with rule_id with new_rule
 
         Args:
-            rule_id (int): rule_id of the BinaryDecisionNode
+            rule_id (int): rule_id
+            new_rule (BusinessRule): rule to replace the original rule
+        """
+        new_rule = self.rules.replace_rule(rule_id, new_rule)
+        self._stored_params['rules'] = self.rules
+        self._reset_rule_ids()
+        if isinstance(new_rule, BinaryNode):
+            return new_rule.if_true
+        return new_rule
+        
+    def replace_binarynode_true_rule(self, rule_id:int, new_rule:BusinessRule)->None:
+        """Replace the if_true rule of a BinaryNode with new_rule
+
+        Args:
+            rule_id (int): rule_id of the BinaryNode
             new_rule (BusinessRule): New rule to replace the old rule
 
         Raises:
-            ValueError: In case the rule with rule_id is not a BinaryDecisionNode
+            ValueError: In case the rule with rule_id is not a BinaryNode
         """
         binary_node = self.get_rule(rule_id)
-        if isinstance(binary_node, BinaryDecisionNode):
+        if isinstance(binary_node, BinaryNode):
             binary_node.if_true = new_rule
             self.reset_rule_ids()
         else:
-            raise ValueError(f"rule {rule_id} is not a BinaryDecisionNode!")
+            raise ValueError(f"rule {rule_id} is not a BinaryNode!")
         
     def replace_binarynode_false_rule(self, rule_id:int, new_rule:BusinessRule)->None:
-        """Replace the if_false rule of a BinaryDecisionNode with new_rule
+        """Replace the if_false rule of a BinaryNode with new_rule
 
         Args:
-            rule_id (int): rule_id of the BinaryDecisionNode
+            rule_id (int): rule_id of the BinaryNode
             new_rule (BusinessRule): New rule to replace the old rule
 
         Raises:
-            ValueError: In case the rule with rule_id is not a BinaryDecisionNode
+            ValueError: In case the rule with rule_id is not a BinaryNode
         """
         binary_node = self.get_rule(rule_id)
-        if isinstance(binary_node, BinaryDecisionNode):
+        if isinstance(binary_node, BinaryNode):
             binary_node.if_false = new_rule
             self.reset_rule_ids()
         else:
-            raise ValueError(f"rule {rule_id} is not a BinaryDecisionNode!")
+            raise ValueError(f"rule {rule_id} is not a BinaryNode!")
         
     def score_rule(self, X:pd.DataFrame, y:Union[pd.Series, np.ndarray])->pd.DataFrame:
         """dummy method for self.scores_rules(X, y). Use scores_rules(X, y) instead."""
@@ -229,17 +241,8 @@ class RuleEstimator(BusinessRule):
             Union[pd.DataFrame, Tuple[pd.DataFrame, Union[pd.Series, np.ndarray]]]: [description]
         """
         return self.rules.get_rule_leftover(rule_id, X, y)
-    
-    def replace_rule(self, rule_id:int, new_rule:BusinessRule)->None:
-        """Replace rule with rule_id with new_rule
-
-        Args:
-            rule_id (int): rule_id
-            new_rule (BusinessRule): rule to replace the original rule
-        """
-        self.rules.replace_rule(rule_id, new_rule)
-        self._reset_rule_ids()
      
+    
     def get_rule_params(self, rule_id:int)->dict:
         """Get the parameters of the rule with rule_id. You can get an overview
         of rule_id's with estimator.describe().
@@ -261,10 +264,6 @@ class RuleEstimator(BusinessRule):
             **params: kwargs will be passed to the rule and updated.
         """
         self.rules.set_rule_params(rule_id, **params)
-    
-    def _get_casewhens(self):
-        self._reset_rule_ids()
-        return self.rules._get_casewhens()
         
     def get_igraph(self)->Graph:
         """Return an igraph object with all the rules as vertices and the 
@@ -277,6 +276,19 @@ class RuleEstimator(BusinessRule):
         """
         self._reset_rule_ids()
         return self.rules.add_to_igraph()
+
+    def describe(self)->str:
+        """returns an indented high-level description of the system of rules
+        used by the estimator. Including rule_id's. 
+
+        Returns:
+            str: [description]
+        """
+        self._reset_rule_ids()
+        description = super().describe()
+        if self.final_estimator is not None:
+            description += f"final_estimator = {self.final_estimator}\n"
+        return description
     
     def plot(self):
         """
@@ -297,45 +309,104 @@ class RuleEstimator(BusinessRule):
         #find the max Y in order to invert the graph:
         nodes_y = [2*max(nodes_y)-y for y in nodes_y]
 
-        connections_x, connections_y = [], []
-        for edge in graph.es:
-            connections_x += [nodes_x[edge.tuple[0]], nodes_x[edge.tuple[1]], None]
-            connections_y += [nodes_y[edge.tuple[0]], nodes_y[edge.tuple[1]], None]
+        casewhen_x, casewhen_y = [], []
+        for edge in graph.es.select(casewhen=True):
+            casewhen_x += [nodes_x[edge.tuple[0]], nodes_x[edge.tuple[1]], None]
+            casewhen_y += [nodes_y[edge.tuple[0]], nodes_y[edge.tuple[1]], None]
 
+        node_true_x, node_true_y = [], []
+        for edge in graph.es.select(binary_node="if_true"):
+            node_true_x += [nodes_x[edge.tuple[0]], nodes_x[edge.tuple[1]], None]
+            node_true_y += [nodes_y[edge.tuple[0]], nodes_y[edge.tuple[1]], None]
+
+        node_false_x, node_false_y = [], []
+        for edge in graph.es.select(binary_node="if_false"):
+            node_false_x += [nodes_x[edge.tuple[0]], nodes_x[edge.tuple[1]], None]
+            node_false_y += [nodes_y[edge.tuple[0]], nodes_y[edge.tuple[1]], None]
 
         fig = go.Figure()
 
         fig.add_trace(go.Scatter(
-                           x=connections_x,
-                           y=connections_y,
-                           mode='lines',
-                           name='connections',
-                           line=dict(color='rgb(210,210,210)', width=1),
-                           hoverinfo='none'
-                           ))
+                        x=casewhen_x,
+                        y=casewhen_y,
+                        mode='lines',
+                        name='connections',
+                        line=dict(color='rgb(210,210,210)', width=2, dash='dot'),
+                        hoverinfo='none'
+                        ))
 
         fig.add_trace(go.Scatter(
-                          x=nodes_x,
-                          y=nodes_y,
-                          mode='markers+text',
-                          name='nodes',
-                          marker=dict(symbol='circle',
+                        x=node_true_x,
+                        y=node_true_y,
+                        mode='lines',
+                        name='connections',
+                        text=[None, "if true", None] * int(len(node_true_x)/3),
+                        line=dict(color='rgb(210,210,210)', width=2, dash='dash'),
+                        hoverinfo='none'
+                        ))
+
+        for (start_x, end_x, none), (start_y, end_y, none) in zip(zip(*[iter(node_true_x)]*3), zip(*[iter(node_true_y)]*3)):
+            fig.add_annotation(x=(end_x+start_x)/2, y=(end_y+start_y)/2, text="true", showarrow=False)
+
+
+        fig.add_trace(go.Scatter(
+                        x=node_false_x,
+                        y=node_false_y,
+                        mode='lines',
+                        name='connections',
+                        text=[None, "if false", None] * int(len(node_true_x)/3),
+                        line=dict(color='rgb(210,210,210)', width=2, dash='dash'),
+                        hoverinfo='none'
+                        ))
+
+        for (start_x, end_x, none), (start_y, end_y, none) in zip(zip(*[iter(node_false_x)]*3), zip(*[iter(node_false_y)]*3)):
+            fig.add_annotation(x=(end_x+start_x)/2, y=(end_y+start_y)/2, text="false", showarrow=False)
+
+        fig.add_trace(go.Scatter(
+                        x=nodes_x,
+                        y=nodes_y,
+                        mode='markers+text',
+                        name='nodes',
+                        marker=dict(symbol='circle',
                                         size=18,
                                         color='#6175c1',    
                                         line=dict(color='rgb(50,50,50)', width=1)
                                         ),
-                          text=[f"{id}: {desc}" for id, desc in zip(graph.vs['rule_id'], graph.vs['name'])],
-                          textposition="top right",
-                          hovertext=graph.vs['description'],
-                          opacity=0.8
-                          ))
+                        text=[f"{id}: {desc}" for id, desc in zip(graph.vs['rule_id'], graph.vs['name'])],
+                        textposition="top right",
+                        hovertext=graph.vs['description'],
+                        opacity=0.8
+                        ))
 
-        fig.update_layout(showlegend=False)
-        fig.update_xaxes(visible=False)
+        fig.update_layout(showlegend=False, margin=dict(b=0, t=0, l=0, r=0))
+        fig.update_xaxes(visible=False, range=(min(nodes_x)-1, max(nodes_x)+1))
         fig.update_yaxes(visible=False)
         return fig
 
-    def parallel_coordinates(self, X:pd.DataFrame, y:np.ndarray, rule_id:int=None, cols:List[str]=None, after=False):
+    def pie(self, X:pd.DataFrame, y:np.ndarray, rule_id:int=None, after=False,
+                size=120, margin=0, showlegend=False):
+        try:
+            import plotly.express as px
+        except ImportError:
+            raise ImportError("Failed to load plotly, the plotting backend. "
+                              "You need to install it seperately with pip install plotly.")
+
+        color_discrete_map = {str(i): color for i, color in enumerate(px.colors.qualitative.Plotly)}
+
+        if rule_id is not None:
+            X, y = self.get_rule_input(rule_id, X, y, after)
+        
+        return (px.pie(names=y.value_counts().index.astype(str), 
+                                   values=y.value_counts().values, 
+                                   color=y.value_counts().index.astype(str),
+                                   color_discrete_map = color_discrete_map)
+                               .update_layout(showlegend=showlegend, width=size, height=size)
+                               .update_layout(margin=dict(t=margin, b=margin, l=margin, r=margin))
+                               .update_traces(textinfo='none'))
+
+    def parallel_coordinates(self, X:pd.DataFrame, y:np.ndarray, rule_id:int=None, 
+                                cols:List[str]=None, after=False,
+                                ymin=None, ymax=None):
         """generate parallel coordinates plot for data X, y. If rule_id is specified
         then only use data that reaches the rule with rule_id. You can select
         a sublist of columns by passing a list of cols.
@@ -353,19 +424,47 @@ class RuleEstimator(BusinessRule):
             plotly.graph_objs.Figure
         """
         try:
-            from plotly.express import parallel_coordinates
+            import plotly.graph_objs as go
+            import plotly.express as px
         except ImportError:
-            raise ImportError("Failed to load plotly.express, the plotting backend. "
+            raise ImportError("Failed to load plotly, the plotting backend. "
                               "You need to install it seperately with pip install plotly.")
-        y_range = (y.min(), y.max())
         if rule_id is not None:
             X, y = self.get_rule_input(rule_id, X, y, after)
         
         if cols is not None:
             X = X[cols]
 
-        return parallel_coordinates(X.assign(target=y).reset_index(drop=True), 
-                        color='target', range_color=(y_range))
+        ymax = ymax if ymax is not None else y.max()
+        ymin = ymin if ymin is not None else y.min()
+
+        colors = px.colors.qualitative.Plotly
+        colorscale = []
+        for a, b in enumerate(np.linspace(0.0, 1.0, int(ymax)+2, endpoint=True)):
+            if b<0.01:
+                colorscale.append((b, colors[a])) 
+            elif b > 0.01 and b < 0.99:
+                colorscale.append((b, colors[a-1]))
+                colorscale.append((b, colors[a]))
+            else:
+                colorscale.append((b, colors[a-1]))
+
+        dimensions = [dict(label=col, values=X[col]) for col in X.columns]
+        dimensions.append(dict(label = "y", values=y))
+
+        fig = go.Figure(data=
+                    go.Parcoords(
+                        line = dict(color = y,
+                                    cmin=ymin, 
+                                    cmax=ymax,
+                                    colorscale=colorscale,
+                                    colorbar={'tickvals': y.tolist(),
+                                            'ticktext': y.tolist()},
+                                    showscale=True),
+                        dimensions = dimensions
+                    )
+                )
+        return fig
           
 class RuleClassifier(RuleEstimator):
     

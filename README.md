@@ -46,7 +46,7 @@ Any flowers not labeled get the default label=1 (versicolor):
 from rule_estimator import *
 
 model = RuleClassifier(
-    LesserThanNode("petal length (cm)", 1.91, # BinaryDecisionNode
+    LesserThanNode("petal length (cm)", 1.91, # BinaryNode
         if_true=PredictionRule(prediction=0), # DummyRule: always predict 0
         if_false=CaseWhen([
                     # Go through these rules and if one applies, assign the prediction
@@ -343,7 +343,7 @@ will get a `np.nan` prediction.
 `CaseWhen` processes a list of `BusinessRules` one-by-one, if a rule applies
     it assigns the prediction, then passes the remaining rows to the next Rule, etc.
     
-There are also four `BinaryDecisionNodes` defined. These evaluate a condition,
+There are also four `BinaryNodes` defined. These evaluate a condition,
 and if the condition holds pass the prediction off to `BusinessRule` `if_true`,
 and otherwise to `BusinessRule` `if_false`:
 
@@ -388,7 +388,7 @@ so worth the effort of replacing it with something better.
 
 ```python
 model = RuleClassifier(
-    LesserThanNode("petal length (cm)", 1.91, # BinaryDecisionNode
+    LesserThanNode("petal length (cm)", 1.91, # BinaryNode
         if_true=PredictionRule(prediction=0), # PredictionRule: always predict 0
         if_false=VersicolorRule()
     ),   

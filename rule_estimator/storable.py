@@ -1,9 +1,12 @@
 __all__ = ['Storable']
 
 import sys
+import io
+
 from importlib import import_module
 from pathlib import Path
 from typing import Union, List, Dict, Tuple
+import pickle
 
 import oyaml as yaml
 
@@ -57,13 +60,13 @@ def encode_storables_to_python_code(obj, tabs=0)->str:
     have a ._stored_params attribute) in into their their name and params.
     Works recursively through sub-list and sub-dicts.
     """
-    linestart = "\n" +"\t"*tabs
-    indent = "\n" +"\t"*(tabs+1)
+    linestart = "\n" +"    "*tabs
+    indent = "\n" +"    "*(tabs+1)
     
     if hasattr(obj, "_stored_params"):
         return f"{linestart}{obj.__class__.__name__}({indent}" + f',{indent}'.join([f'{k}={encode_storables_to_python_code(v, tabs+1)}' for k, v in obj._stored_params.items()]) +f"{linestart})"     
     if isinstance(obj, dict):
-        return f"{{{', '.join([f'{k}={encode_storables_to_python_code(v, tabs+1)}' for k, v in obj.items()])}}}"
+        return f"{{{', '.join([f'{encode_storables_to_python_code(k)}={encode_storables_to_python_code(v, tabs+1)}' for k, v in obj.items()])}}}"
     elif isinstance(obj, list):
         return f"[{', '.join([encode_storables_to_python_code(o, tabs+1) for o in obj])}]"
     elif isinstance(obj, str):
@@ -151,6 +154,19 @@ class Storable:
 
         config = yaml.safe_load(open(str(Path(filepath)), "r"))
         return decode_storables(config)
-    
+
+    def pickle(self, filename:Path=None):
+        if filename is not None:
+            pickle.dump(self, open(Path(filename), "wb"))
+        else:
+            bytes_io = io.BytesIO()
+            pickle.dump(self, bytes_io)
+            bytes_io.seek(0)
+            return bytes_io
+
+    @classmethod
+    def from_pickle(cls, filepath:Union[Path, str]):
+        return pickle.load(open(Path(filepath), "rb"))
+
     def to_code(self)->str:
         return encode_storables_to_python_code(self)

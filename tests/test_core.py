@@ -14,7 +14,7 @@ from rule_estimator import *
 @pytest.fixture
 def model():
     return RuleClassifier(
-        LesserThanNode("petal length (cm)", 1.91, # BinaryDecisionNode
+        LesserThanNode("petal length (cm)", 1.91, # BinaryNode
             if_true=PredictionRule(prediction=0), # PredictionRule: always predict 0
             if_false=CaseWhen([
                         # Go through these rules and if one applies, assign the prediction
