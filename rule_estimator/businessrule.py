@@ -16,41 +16,6 @@ from igraph import Graph
 from .storable import Storable
 
 
-def describe_businessrule(obj, spaces:int=0)->str:
-    """If obj has a __rulerepr__ method then adds it to a string,
-    and then recursively finds all attributes with __rulerepr__ methods
-    and adds them to the string with appropriate indentation.
-
-    Args:
-        obj (BusinessRule): BusinessRule instance to be recursively described.
-
-        spaces (int, optional): Number of spaces of indentation. Gets recursively
-            increased. Defaults to 0.
-
-    Returns:
-        str: description of the entire tree of businessrules inside obj.
-    """
-    rulerepr = ""
-    if isinstance(obj, BusinessRule):
-        rule_id = f"{obj._rule_id}: " if obj._rule_id is not None else ""
-        rulerepr += " " * spaces + rule_id + obj.__rulerepr__() # + "\n"
-        if hasattr(obj, "default") and not np.isnan(obj.default):
-            rulerepr += f" (default={obj.default})\n"
-        else:
-            rulerepr += "\n"
-    if hasattr(obj, "__dict__"):
-        for k, v in obj.__dict__.items():
-            if not k.startswith("_"):
-                rulerepr += describe_businessrule(v, spaces=spaces+2)
-    elif isinstance(obj, dict):
-        for v in obj.values():
-            rulerepr += describe_businessrule(v, spaces=spaces+2)
-    elif isinstance(obj, list):
-        for v in obj:
-            rulerepr += describe_businessrule(v, spaces=spaces+1)
-    return rulerepr
-
-
 def generate_range_mask(range_dict:dict, X:pd.DataFrame, kind:str='all')->pd.Series:
     """generates boolean mask for X based on range_dict dictionary. 
 
@@ -295,9 +260,6 @@ class BusinessRule(BaseEstimator, Storable):
         
     def __rulerepr__(self)->str:
         return "BusinessRule"
-
-    def describe(self)->str:
-        return describe_businessrule(self)
 
     def to_yaml(self, filepath:Union[Path, str]=None, return_dict:bool=False):
         """Store object to a yaml format.

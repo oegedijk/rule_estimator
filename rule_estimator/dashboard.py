@@ -135,11 +135,7 @@ class RuleClassifierDashboard:
             dbc.Row([
                 dbc.Col([
                     dbc.Card([
-                        # dbc.CardHeader([
-                        #     html.H3("Select Rule", className="card-title"),
-                        # ]),
                         dbc.CardBody([
-                            #html.H3("Select Rule", className="card-title"),
                             dbc.Row([
                                 dbc.Col([
                                     dbc.FormGroup([
@@ -188,7 +184,7 @@ class RuleClassifierDashboard:
                     dbc.Card([
                         dbc.CardHeader([
                             html.H3("Parallel Feature Plot", className="card-title"),
-                            html.H6("Select (multiple) feature ranges to generate split or predict rules", className="card-subtitle"),   
+                            html.H6("Select (multiple) feature ranges to generate a split or add a prediction rule", className="card-subtitle"),   
                         ]),
                         dbc.CardBody([
                             dbc.Row([
@@ -240,11 +236,13 @@ class RuleClassifierDashboard:
                                 ], md=4),
                                 dbc.Col([
                                     dbc.FormGroup([
-                                            dbc.Label("Prediction: ", size="sm", html_for='parallel-prediction'),
+                                            dbc.Label("Prediction: ", #size="", 
+                                            html_for='parallel-prediction',
+                                                style=dict(verticalAlignment='text-bottom')),
                                             dcc.Dropdown(id='parallel-prediction', options=[
                                                 {'label':f"{y}. {label}", 'value':y} for y, label in enumerate(self.labels)],
                                                 value=len(self.labels)-1, clearable=False, 
-                                                style={'height': '30px', 'width':'150px'}),
+                                                style={'height': '20px', 'width':'150px'}),
                                             dbc.Tooltip("The prediction to be applied. Either to all data ('Predict All'), "
                                                         "or to the selected data ('Predict Selected'). Will get automatically "
                                                         "Inferred from the selected data in the Parallel Plot.", target='parallel-prediction'),
@@ -298,7 +296,8 @@ class RuleClassifierDashboard:
                 dbc.Col([
                     dbc.Card([
                         dbc.CardHeader([
-                            html.H3("Model"),
+                            html.H3("Model", className='card-title'),
+                            html.H6("You can select a rule by clicking on it in the Graph", className='card-subtitle'),
                         ]),
                         dbc.CardBody([
                             dcc.Tabs(id='model-tabs', value='model-graph-tab', children=[
@@ -332,7 +331,7 @@ class RuleClassifierDashboard:
                                         children=html.Div([dbc.Row([dbc.Col([
                                                 html.Div("To instantiate a model from a .yaml file:"),
                                                 dcc.Markdown("```\nfrom rule_estimator import *\n"
-                                                            "model = RuleClassifier.from_yaml('dashboard.yaml')\n"
+                                                            "model = RuleClassifier.from_yaml('model.yaml')\n"
                                                             "model.predict(X_test)\n```"),
                                                 dbc.Label("model.yaml:"),
                                                 dcc.Markdown(id='model-yaml'),
@@ -501,7 +500,7 @@ class RuleClassifierDashboard:
                                     id='reset-model-confirm',
                                     message='Warning! Once you have reset the model there is undo button or ctrl-z! Are you sure?'
                                 ),
-                                dbc.Tooltip("Reset the model to the initial state. Warning! Can ot be undone!", 
+                                dbc.Tooltip("Reset the model to the initial state. Warning! Cannot be undone!", 
                                             target='reset-model-button'),
                             ], style=dict(marginTop=10))   
                         ]),
@@ -523,52 +522,7 @@ class RuleClassifierDashboard:
         ])
                                 
     def register_callbacks(self, app):
-
-        @app.callback(
-            Output('isinrule-cats', 'options'),
-            Output('isinrule-cats', 'value'),
-            Input('isinrule-col', 'value'),
-            Input('selected-rule-id', 'value'),
-            State('train-or-val', 'value'),
-            State('isinrule-cats', 'value'),
-            State('model-store', 'data'),
-        )
-        def update_isinrule_cats(col, rule_id, train_or_val, old_cats, model):
-            if col is not None and rule_id is not None:
-                model = self._get_model(model)
-                X, y = (self.X, self.y) if train_or_val == 'train' else (self.X_val, self.y_val)
-                X, y = model.get_rule_input(rule_id, X, y)
-                cats = X[col].unique().tolist()
-                options = [dict(label=cat, value=cat) for cat in cats]
-                if old_cats is None:
-                    old_cats = []
-                value = [cat for cat in old_cats if cat in cats]
-                return options, value
-            raise PreventUpdate
-
-        @app.callback(
-            Output('isinnode-cats', 'options'),
-            Output('isinnode-cats', 'value'),
-            Input('isinnode-col', 'value'),
-            Input('selected-rule-id', 'value'),
-            State('train-or-val', 'value'),
-            State('isinnode-cats', 'value'),
-            State('model-store', 'data'),
-        )
-        def update_isinrule_cats(col, rule_id, train_or_val, old_cats, model):
-            if col is not None and rule_id is not None:
-                model = self._get_model(model)
-                X, y = (self.X, self.y) if train_or_val == 'train' else (self.X_val, self.y_val)
-                X, y = model.get_rule_input(rule_id, X, y)
-                cats = X[col].unique().tolist()
-                options = [dict(label=cat, value=cat) for cat in cats]
-                if old_cats is None:
-                    old_cats = []
-                value = [cat for cat in old_cats if cat in cats]
-                return options, value
-            raise PreventUpdate
-
-                                                    
+                                            
         @app.callback(
             Output('model-store', 'data'),
             Input('casewhen-updated-model', 'data'),
@@ -744,7 +698,7 @@ class RuleClassifierDashboard:
             return ("update_graph", 
                     f"```\n{model.describe()}```",
                     f"```yaml\n{model.to_yaml()}\n```",
-                    f"```python\nmodel = {model.to_code()}\n```",
+                    f"```python\nmodel = {model.to_code()[1:]}\n```",
                     "update_performance",
                     rule_id_options, rule_id)
         
@@ -812,6 +766,50 @@ class RuleClassifierDashboard:
                     new_rule = model.replace_rule(rule_id, new_rule(col=col, cutoff=cutoff, prediction=prediction))
                     new_rule_id = new_rule._rule_id
                 return new_rule_id, model.to_json()
+            raise PreventUpdate
+
+        @app.callback(
+            Output('isinrule-cats', 'options'),
+            Output('isinrule-cats', 'value'),
+            Input('isinrule-col', 'value'),
+            Input('selected-rule-id', 'value'),
+            State('train-or-val', 'value'),
+            State('isinrule-cats', 'value'),
+            State('model-store', 'data'),
+        )
+        def update_isinrule_cats(col, rule_id, train_or_val, old_cats, model):
+            if col is not None and rule_id is not None:
+                model = self._get_model(model)
+                X, y = (self.X, self.y) if train_or_val == 'train' else (self.X_val, self.y_val)
+                X, y = model.get_rule_input(rule_id, X, y)
+                cats = X[col].unique().tolist()
+                options = [dict(label=cat, value=cat) for cat in cats]
+                if old_cats is None:
+                    old_cats = []
+                value = [cat for cat in old_cats if cat in cats]
+                return options, value
+            raise PreventUpdate
+
+        @app.callback(
+            Output('isinnode-cats', 'options'),
+            Output('isinnode-cats', 'value'),
+            Input('isinnode-col', 'value'),
+            Input('selected-rule-id', 'value'),
+            State('train-or-val', 'value'),
+            State('isinnode-cats', 'value'),
+            State('model-store', 'data'),
+        )
+        def update_isinrule_cats(col, rule_id, train_or_val, old_cats, model):
+            if col is not None and rule_id is not None:
+                model = self._get_model(model)
+                X, y = (self.X, self.y) if train_or_val == 'train' else (self.X_val, self.y_val)
+                X, y = model.get_rule_input(rule_id, X, y)
+                cats = X[col].unique().tolist()
+                options = [dict(label=cat, value=cat) for cat in cats]
+                if old_cats is None:
+                    old_cats = []
+                value = [cat for cat in old_cats if cat in cats]
+                return options, value
             raise PreventUpdate
 
         @app.callback(

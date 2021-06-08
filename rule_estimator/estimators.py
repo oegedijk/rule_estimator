@@ -21,7 +21,50 @@ from .nodes import BinarySplit
 from .rules import CaseWhen, EmptyRule
 
 
+def describe_businessrule(obj, spaces:int=0, indent:int=0, prefix:str=None)->str:
+    """If obj has a __rulerepr__ method then adds it to a string,
+    and then recursively finds all attributes with __rulerepr__ methods
+    and adds them to the string with appropriate indentation.
 
+    Args:
+        obj (BusinessRule): BusinessRule instance to be recursively described.
+
+        spaces (int, optional): Number of spaces of indentation. Gets recursively
+            increased. Defaults to 0.
+
+    Returns:
+        str: description of the entire tree of businessrules inside obj.
+    """
+    rulerepr = ""
+    arrow = chr(int("21B3", 16))
+    yes_arrow = arrow + 'y ' 
+    no_arrow = arrow + 'n '
+    if prefix is None: prefix = ""
+    if isinstance(obj, BusinessRule):
+        rule_id = f"{obj._rule_id}: " if obj._rule_id is not None else ""
+        rulerepr += " " * (spaces) + prefix + rule_id + obj.__rulerepr__() # + "\n"
+        if hasattr(obj, "default") and not np.isnan(obj.default):
+            rulerepr += f" (default={obj.default})\n"
+        else:
+            rulerepr += "\n"
+
+    if isinstance(obj, BinarySplit):
+        rulerepr += ''*spaces + describe_businessrule(obj.if_true, spaces=spaces+indent, indent=3, prefix=yes_arrow)
+        rulerepr += ''*spaces + describe_businessrule(obj.if_false, spaces=spaces+indent, indent=3, prefix=no_arrow)
+    elif isinstance(obj, CaseWhen):
+        for rule in obj.rules:
+            rulerepr += describe_businessrule(rule, spaces=spaces+indent, indent=2, prefix=arrow+' ')   
+    elif hasattr(obj, "__dict__"):
+        for k, v in obj.__dict__.items():
+            if not k.startswith("_"):
+                rulerepr += describe_businessrule(v, spaces=spaces+2)
+    if isinstance(obj, dict):
+        for v in obj.values():
+            rulerepr += describe_businessrule(v, spaces=spaces+2)
+    elif isinstance(obj, list):
+        for v in obj:
+            rulerepr += describe_businessrule(v, spaces=spaces+1)
+    return rulerepr
 
 class RuleEstimator(BusinessRule):
     def __init__(self, rules:Union[BusinessRule, List[BusinessRule]]=None,
@@ -320,7 +363,7 @@ class RuleEstimator(BusinessRule):
             str: [description]
         """
         self._reset_rule_ids()
-        description = super().describe()
+        description = describe_businessrule(self)
         if self.final_estimator is not None:
             description += f"final_estimator = {self.final_estimator}\n"
         return description
@@ -590,7 +633,7 @@ class RuleEstimator(BusinessRule):
                     label=col, values=X[col].replace(dict(zip(col_df[col], col_df.index))).values)
 
         if labels is None:
-            labels = [str(i) for i in y.nunique()]
+            labels = [str(i) for i in range(y.nunique())]
 
         if rule_id is not None:
             X, y = self.get_rule_input(rule_id, X, y, after)

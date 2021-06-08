@@ -65,7 +65,9 @@ def encode_storables_to_python_code(obj, tabs=0)->str:
     indent = "\n" +"    "*(tabs+1)
     
     if hasattr(obj, "_stored_params"):
-        return f"{linestart}{obj.__class__.__name__}({indent}" + f',{indent}'.join([f'{k}={encode_storables_to_python_code(v, tabs+1)}' for k, v in obj._stored_params.items()]) +f"{linestart})"     
+        return (f"{linestart}{obj.__class__.__name__}({indent}" + 
+                f',{indent}'.join([f'{k}={encode_storables_to_python_code(v, tabs+1)}' 
+                        for k, v in obj._stored_params.items()]) +f"{linestart})")
     if isinstance(obj, dict):
         return f"{{{', '.join([f'{encode_storables_to_python_code(k)}:{encode_storables_to_python_code(v, tabs+1)}' for k, v in obj.items()])}}}"
     elif isinstance(obj, list):
