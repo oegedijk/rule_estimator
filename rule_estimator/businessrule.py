@@ -214,6 +214,9 @@ class BusinessRule(BaseEstimator, Storable):
             self.__class__ = new_rule.__class__
             self.__dict__ = new_rule.__dict__
             return self
+
+    def remove_rule(self, rule_id:int):
+        return None
             
     def get_rule_params(self, rule_id:int)->dict:
         if self._rule_id is not None and self._rule_id == rule_id:

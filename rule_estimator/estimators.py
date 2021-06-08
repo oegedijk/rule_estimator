@@ -17,7 +17,7 @@ from sklearn.metrics import accuracy_score, mean_squared_error
 from igraph import Graph 
 
 from .businessrule import BusinessRule 
-from .nodes import BinaryNode
+from .nodes import BinarySplit
 from .rules import CaseWhen, EmptyRule
 
 
@@ -140,7 +140,7 @@ class RuleEstimator(BusinessRule):
         else:
             self.replace_rule(rule_id, CaseWhen(rules=[deepcopy(rule), new_rule]))
         self._reset_rule_ids()
-        if isinstance(new_rule, BinaryNode):
+        if isinstance(new_rule, BinarySplit):
             return new_rule.if_true._rule_id
         return new_rule._rule_id
 
@@ -154,43 +154,52 @@ class RuleEstimator(BusinessRule):
         new_rule = self.rules.replace_rule(rule_id, new_rule)
         self._stored_params['rules'] = self.rules
         self._reset_rule_ids()
-        if isinstance(new_rule, BinaryNode):
+        if isinstance(new_rule, BinarySplit):
             return new_rule.if_true
         return new_rule
+
+    def remove_rule(self, rule_id:int):
+        if rule_id == 0:
+            self.rules = CaseWhen()
+            self._stored_params['rules'] = self.rules
+            return self.rules
+        remove = self.rules.remove_rule(rule_id)
+        self._reset_rule_ids()
+        return remove
         
     def replace_binarynode_true_rule(self, rule_id:int, new_rule:BusinessRule)->None:
-        """Replace the if_true rule of a BinaryNode with new_rule
+        """Replace the if_true rule of a BinarySplit with new_rule
 
         Args:
-            rule_id (int): rule_id of the BinaryNode
+            rule_id (int): rule_id of the BinarySplit
             new_rule (BusinessRule): New rule to replace the old rule
 
         Raises:
-            ValueError: In case the rule with rule_id is not a BinaryNode
+            ValueError: In case the rule with rule_id is not a BinarySplit
         """
         binary_node = self.get_rule(rule_id)
-        if isinstance(binary_node, BinaryNode):
+        if isinstance(binary_node, BinarySplit):
             binary_node.if_true = new_rule
             self.reset_rule_ids()
         else:
-            raise ValueError(f"rule {rule_id} is not a BinaryNode!")
+            raise ValueError(f"rule {rule_id} is not a BinarySplit!")
         
     def replace_binarynode_false_rule(self, rule_id:int, new_rule:BusinessRule)->None:
-        """Replace the if_false rule of a BinaryNode with new_rule
+        """Replace the if_false rule of a BinarySplit with new_rule
 
         Args:
-            rule_id (int): rule_id of the BinaryNode
+            rule_id (int): rule_id of the BinarySplit
             new_rule (BusinessRule): New rule to replace the old rule
 
         Raises:
-            ValueError: In case the rule with rule_id is not a BinaryNode
+            ValueError: In case the rule with rule_id is not a BinarySplit
         """
         binary_node = self.get_rule(rule_id)
-        if isinstance(binary_node, BinaryNode):
+        if isinstance(binary_node, BinarySplit):
             binary_node.if_false = new_rule
             self.reset_rule_ids()
         else:
-            raise ValueError(f"rule {rule_id} is not a BinaryNode!")
+            raise ValueError(f"rule {rule_id} is not a BinarySplit!")
         
     def score_rule(self, X:pd.DataFrame, y:Union[pd.Series, np.ndarray])->pd.DataFrame:
         """dummy method for self.scores_rules(X, y). Use scores_rules(X, y) instead."""
@@ -514,7 +523,7 @@ class RuleEstimator(BusinessRule):
                         ))
 
         fig.update_layout(showlegend=False, margin=dict(b=0, t=0, l=0, r=0))
-        fig.update_xaxes(visible=False, range=(min(nodes_x)-1, max(nodes_x)+1))
+        fig.update_xaxes(visible=False, range=(min(nodes_x)-4, max(nodes_x)+4))
         fig.update_yaxes(visible=False)
         return fig
 
@@ -663,7 +672,7 @@ class RuleClassifier(RuleEstimator):
                 the most prevalent class at that point.
             kind='rule': suggest a LesserThan rule based on a single step 
                 DecisionTreeClassifier
-            kind='node': suggest a LesserThanNode rule based on a single step 
+            kind='node': suggest a LesserThanSplit rule based on a single step 
                 DecisionTreeClassifier
 
         If you pass after=True, use the leftover data out of the rule instead
@@ -675,7 +684,7 @@ class RuleClassifier(RuleEstimator):
             y (Union[pd.Series, np.ndarray]): [description]
             kind (str, {'prediction', 'rule', 'node'}, optional): The type of 
                 rule to return. Either a PredictionRule, a LesserThan rule or 
-                a LesserThanNode. Defaults to 'rule'.
+                a LesserThanSplit. Defaults to 'rule'.
             after (bool, optional): Use the leftover data that is not assigned
                 by the rule instead of the data flowing into the rule. Defaults to False.
 
@@ -704,7 +713,7 @@ class RuleClassifier(RuleEstimator):
         elif kind=='prediction':
             return f"PredictionRule(prediction={y_most_frequent})"
         elif kind=='node':
-            return f"LesserThanNode(col='{col}', cutoff={cutoff})"
+            return f"LesserThanSplit(col='{col}', cutoff={cutoff})"
 
     def __rulerepr__(self)->str:
         return "RuleClassifier"
@@ -721,7 +730,7 @@ class RuleRegressor(RuleEstimator):
                 the most prevalent class at that point.
             kind='rule': suggest a LesserThan rule based on a single step 
                 DecisionTreeRegressor
-            kind='node': suggest a LesserThanNode rule based on a single step 
+            kind='node': suggest a LesserThanSplit rule based on a single step 
                 DecisionTreeRegressor
 
         If you pass after=True, use the leftover data out of the rule instead
@@ -733,7 +742,7 @@ class RuleRegressor(RuleEstimator):
             y (Union[pd.Series, np.ndarray]): [description]
             kind (str, {'prediction', 'rule', 'node'}, optional): The type of 
                 rule to return. Either a PredictionRule, a LesserThan rule or 
-                a LesserThanNode. Defaults to 'rule'.
+                a LesserThanSplit. Defaults to 'rule'.
             after (bool, optional): Use the leftover data that is not assigned
                 by the rule instead of the data flowing into the rule. Defaults to False.
 
@@ -762,7 +771,7 @@ class RuleRegressor(RuleEstimator):
         elif kind=='prediction':
             return f"PredictionRule(prediction={y_mean})"
         elif kind=='node':
-            return f"LesserThanNode(col='{col}', cutoff={cutoff})"
+            return f"LesserThanSplit(col='{col}', cutoff={cutoff})"
     
     def __rulerepr__(self)->str:
         return "RuleRegressor"

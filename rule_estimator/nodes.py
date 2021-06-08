@@ -1,12 +1,12 @@
 __all__ = [
-    'BinaryNode',
-    'IsInNode',
-    'GreaterThanNode', 
-    'GreaterEqualThanNode', 
-    'LesserThanNode', 
-    'LesserEqualThanNode', 
-    'MultiRangeAndNode',
-    'MultiRangeOrNode'
+    'BinarySplit',
+    'IsInSplit',
+    'GreaterThanSplit', 
+    'GreaterEqualThanSplit', 
+    'LesserThanSplit', 
+    'LesserEqualThanSplit', 
+    'MultiRangeSplit',
+    'MultiRangeAnySplit'
 ]
 
 from typing import Union, List, Dict, Tuple
@@ -20,7 +20,7 @@ from .businessrule import BusinessRule, generate_range_mask
 from .rules import EmptyRule
 
 
-class BinaryNode(BusinessRule):
+class BinarySplit(BusinessRule):
     def __init__(self):
         self._store_child_params(level=2)
         
@@ -177,6 +177,21 @@ class BinaryNode(BusinessRule):
         if replace_rule is None and hasattr(self, "if_false"):
             replace_rule = self.if_false.replace_rule(rule_id, new_rule)
         return replace_rule
+
+    def remove_rule(self, rule_id:int):
+        if self.if_true._rule_id is not None and self.if_true._rule_id == rule_id:
+            self.replace_rule(self.if_true._rule_id, EmptyRule())
+            self._stored_params['if_true'] = self.if_true
+            return self.if_true
+        elif self.if_false._rule_id is not None and self.if_false._rule_id == rule_id:
+            self.replace_rule(self.if_false._rule_id, EmptyRule())
+            self._stored_params['if_false'] = self.if_false
+            return self.if_false
+        else:
+            removed = self.if_true.remove_rule(rule_id)
+            if not removed:
+                removed = self.if_false.remove_rule(rule_id)
+            return removed
        
     def get_rule_params(self, rule_id:int)->dict:
         params = super().get_rule_params(rule_id)
@@ -223,10 +238,10 @@ class BinaryNode(BusinessRule):
         return graph
               
     def __rulerepr__(self):
-        return "BinaryNode"
+        return "BinarySplit"
 
 
-class IsInNode(BinaryNode):
+class IsInSplit(BinarySplit):
     def __init__(self, col:str, cats:List[str],
                  if_true:BusinessRule=None, if_false:BusinessRule=None, default=None):
         super().__init__()
@@ -237,9 +252,9 @@ class IsInNode(BinaryNode):
         return X[self.col].isin(self.cats)
     
     def __rulerepr__(self)->str:
-        return f"IsInNode: If {self.col} in {self.cats}"
+        return f"Split if {self.col} in {self.cats}"
 
-class GreaterThanNode(BinaryNode):
+class GreaterThanSplit(BinarySplit):
     def __init__(self, col:str, cutoff:float,
                  if_true:BusinessRule=None, if_false:BusinessRule=None, default=None):
         super().__init__()
@@ -248,10 +263,10 @@ class GreaterThanNode(BinaryNode):
         return X[self.col] > self.cutoff
 
     def __rulerepr__(self)->str:
-        return f"GreaterThanNode: {self.col} > {self.cutoff}"
+        return f"Split if {self.col} > {self.cutoff}"
 
 
-class GreaterEqualThanNode(BinaryNode):
+class GreaterEqualThanSplit(BinarySplit):
     def __init__(self, col:str, cutoff:float,
                  if_true:BusinessRule=None, if_false:BusinessRule=None, default=None):
         super().__init__()
@@ -260,9 +275,9 @@ class GreaterEqualThanNode(BinaryNode):
         return X[self.col] >= self.cutoff
 
     def __rulerepr__(self)->str:
-        return f"GreaterEqualThanNode: {self.col} >= {self.cutoff}"
+        return f"Split if {self.col} >= {self.cutoff}"
 
-class LesserThanNode(BinaryNode):
+class LesserThanSplit(BinarySplit):
     def __init__(self, col:str, cutoff:float,
                  if_true:BusinessRule=None, if_false:BusinessRule=None, default=None):
         super().__init__()
@@ -271,9 +286,9 @@ class LesserThanNode(BinaryNode):
         return X[self.col] < self.cutoff
 
     def __rulerepr__(self)->str:
-        return f"LesserThanNode: {self.col} < {self.cutoff}"
+        return f"Split if {self.col} < {self.cutoff}"
 
-class LesserEqualThanNode(BinaryNode):
+class LesserEqualThanSplit(BinarySplit):
     def __init__(self, col:str, cutoff:float, 
                  if_true:BusinessRule=None, if_false:BusinessRule=None, default=None):
         super().__init__()
@@ -282,10 +297,10 @@ class LesserEqualThanNode(BinaryNode):
         return X[self.col] <= self.cutoff
 
     def __rulerepr__(self)->str:
-        return f"LesserEqualThanNode: {self.col} <= {self.cutoff}"
+        return f"Split if {self.col} <= {self.cutoff}"
 
 
-class MultiRangeAndNode(BinaryNode):
+class MultiRangeSplit(BinarySplit):
     def __init__(self, range_dict, if_true:BusinessRule=None, if_false:BusinessRule=None, default=None):
         """
         Switches to if_true rule if all range conditions hold for all cols in
@@ -306,11 +321,10 @@ class MultiRangeAndNode(BinaryNode):
         return generate_range_mask(self.range_dict, X, kind='all')
         
     def __rulerepr__(self):
-        return ("MultiRangeAndNode: If " 
-                    + " AND ".join([f"{k} in {v}" for k, v in self.range_dict.items()]))
+        return ("Split if " + " AND ".join([f"{k} in {v}" for k, v in self.range_dict.items()]))
 
 
-class MultiRangeOrNode(BinaryNode):
+class MultiRangeAnySplit(BinarySplit):
     def __init__(self, range_dict, if_true:BusinessRule=None, if_false:BusinessRule=None, default=None):
         """
         Switches to if_true rule if any range conditions hold for any cols in
@@ -331,5 +345,4 @@ class MultiRangeOrNode(BinaryNode):
         return generate_range_mask(self.range_dict, X, kind='any')
         
     def __rulerepr__(self):
-        return ("MultiRangeOrNode: If " 
-                    + " OR ".join([f"{k} in {v}" for k, v in self.range_dict.items()]))
+        return ("Split if " + " OR ".join([f"{k} in {v}" for k, v in self.range_dict.items()]))

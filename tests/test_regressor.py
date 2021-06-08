@@ -15,7 +15,7 @@ from rule_estimator import *
 @pytest.fixture
 def model():
     return RuleRegressor(
-        LesserThanNode(
+        LesserThanSplit(
             col='s5',
             cutoff=-0.003,
             if_true=LesserThan(
@@ -50,8 +50,8 @@ def test_reg_model_suggest(model, data):
     X, y = data
     assert model.suggest_rule(0, X, y).startswith("LesserThan(col='s5', cutoff=-0.003")
     assert model.suggest_rule(0, X, y, kind='prediction').startswith("PredictionRule(prediction=152")
-    assert model.suggest_rule(0, X, y, kind='node').startswith("LesserThanNode(col='s5', cutoff=-0.003")
+    assert model.suggest_rule(0, X, y, kind='node').startswith("LesserThanSplit(col='s5', cutoff=-0.003")
 
     assert model.suggest_rule(2, X, y).startswith("LesserThan(col='bmi', cutoff=0.014")
     assert model.suggest_rule(2, X, y, kind='prediction').startswith("PredictionRule(prediction=193")
-    assert model.suggest_rule(2, X, y, kind='node').startswith("LesserThanNode(col='bmi', cutoff=0.014")
+    assert model.suggest_rule(2, X, y, kind='node').startswith("LesserThanSplit(col='bmi', cutoff=0.014")

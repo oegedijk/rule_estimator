@@ -7,8 +7,8 @@ __all__ = [
     'GreaterEqualThan', 
     'LesserThan', 
     'LesserEqualThan',
-    'MultiRangeAndRule',
-    'MultiRangeOrRule'
+    'MultiRange',
+    'MultiRangeAny'
 ]
 
 from typing import Union, List, Dict, Tuple
@@ -83,6 +83,19 @@ class CaseWhen(BusinessRule):
             return_rule = rule.get_rule(rule_id)
             if return_rule is not None:
                 return return_rule
+
+    def remove_rule(self, rule_id:int):
+        if rule_id in [rule._rule_id for rule in self.rules]:
+            rule = self.get_rule(rule_id)
+            self.rules = [rule for rule in self.rules if rule._rule_id is not None and rule._rule_id !=rule_id]
+            self._stored_params['rules'] = self.rules
+            return rule
+        else:
+            for rule in self.rules:
+                remove = rule.remove_rule(rule_id)
+                if remove is not None:
+                    break
+            return remove
     
     def get_rule_input(self, rule_id:int, X:pd.DataFrame, y:Union[pd.Series, np.ndarray]=None
                       )->Union[pd.DataFrame, Tuple[pd.DataFrame, Union[pd.Series, np.ndarray]]]:
@@ -219,7 +232,7 @@ class EmptyRule(BusinessRule):
         return pd.Series(np.full(len(X), False))
 
     def __rulerepr__(self):
-        return f"EmptyRule: do not alter prediction"
+        return f"EmptyRule"
 
 class PredictionRule(BusinessRule):
     def __init__(self, prediction=None):
@@ -289,7 +302,7 @@ class LesserEqualThan(BusinessRule):
         return f"If {self.col} <= {self.cutoff} then predict {self.prediction}"
 
 
-class MultiRangeAndRule(BusinessRule):
+class MultiRange(BusinessRule):
     def __init__(self, range_dict, prediction, default=None):
         """
         Predicts prediction if all range conditions hold for all cols in
@@ -315,7 +328,7 @@ class MultiRangeAndRule(BusinessRule):
                     + f" then predict {self.prediction}")
 
 
-class MultiRangeOrRule(BusinessRule):
+class MultiRangeAny(BusinessRule):
     def __init__(self, range_dict, prediction, default=None):
         """
         Predicts prediction if any range conditions hold for any cols in

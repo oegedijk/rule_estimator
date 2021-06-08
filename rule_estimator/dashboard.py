@@ -32,10 +32,10 @@ class RuleClassifierDashboard:
     ]
     
     _binary_nodes = [
-        'GreaterThanNode', 
-        'GreaterEqualThanNode', 
-        'LesserThanNode', 
-        'LesserEqualThanNode', 
+        'GreaterThanSplit', 
+        'GreaterEqualThanSplit', 
+        'LesserThanSplit', 
+        'LesserEqualThanSplit', 
     ]
     
     def __init__(self, X, y, X_val=None, y_val=None, val_size=None, model=None, labels=None, port=8050):
@@ -109,6 +109,8 @@ class RuleClassifierDashboard:
             dcc.Store(id='prediction-updated-rule-id'),
             dcc.Store(id='isinrule-updated-rule-id'),
             dcc.Store(id='isinnode-updated-rule-id'),
+            dcc.Store(id='removerule-updated-rule-id'),
+            dcc.Store(id='resetmodel-updated-rule-id'),
 
             dcc.Store(id='model-store'),
             dcc.Store(id='casewhen-updated-model'), 
@@ -119,60 +121,74 @@ class RuleClassifierDashboard:
             dcc.Store(id='prediction-updated-model'),
             dcc.Store(id='isinrule-updated-model'),
             dcc.Store(id='isinnode-updated-model'),
+            dcc.Store(id='removerule-updated-model'),
+            dcc.Store(id='resetmodel-updated-model'),
 
             dcc.Store(id='update-model-performance'),
             dcc.Store(id='update-model-graph'),
             
             dbc.Row([
                 dbc.Col([
-                    dbc.Form([
-                        html.H1("RuleClassifierDashboard"),
-                        html.Div([
-                            dbc.FormGroup([
-                                dbc.RadioItems(
-                                    options=[{'label':'Train data', 'value':'train'},
-                                            {'label':'Validation data', 'value':'val'}],
-                                    value='train',
-                                    id='train-or-val', 
-                                    inline=True),
-                            ], className="mr-3"),
-                        ], style=dict(display="none") if self.X_val is None else dict()),
-                        
-                    ], inline=True),
+                    html.H1("RuleClassifierDashboard"), 
                 ])
             ]),
             dbc.Row([
                 dbc.Col([
                     dbc.Card([
+                        # dbc.CardHeader([
+                        #     html.H3("Select Rule", className="card-title"),
+                        # ]),
+                        dbc.CardBody([
+                            #html.H3("Select Rule", className="card-title"),
+                            dbc.Row([
+                                dbc.Col([
+                                    dbc.FormGroup([
+                                        dbc.Label("Selected rule:", html_for='selected-rule-id', className="mr-2"),
+                                        dcc.Dropdown(id='selected-rule-id', options=[
+                                            {'label':str(ruleid), 'value':int(ruleid)} 
+                                                for ruleid in range(self.model._get_max_rule_id()+1)],
+                                                value=0, clearable=False, style=dict(width=200)),
+                                        dbc.Tooltip("You can either select a rule id here or by clicking in the model graph. "
+                                                    "The parallel plot will show either all the unlabeled data after this rule "
+                                                    "(when you select 'append'), or all the unlabeled data coming into this rule "
+                                                    "(when you select 'replace')", target='selected-rule-id'),
+                                    ], row=True, className="mr-3"),
+                                ]),
+                                dbc.Col([
+                                    dbc.FormGroup([
+                                        dbc.RadioItems(
+                                            options=[{'label':'Append rule after (show data out)', 'value':'append'},
+                                                    {'label':'Replace rule (show data in)', 'value':'replace'}],
+                                            value='append',
+                                            id='append-or-replace', 
+                                            inline=True),
+                                        dbc.Tooltip("When you select to 'append' a rule, the Parallel Plot will show "
+                                                    "all the data that is still unlabeled after the selected rule. "
+                                                    "When you add a rule it will appended to a CaseWhen block. "   
+                                                    "When you select 'replace' the Parallel Plot will display the data going into "
+                                                    "this rule. When you add a rule, it will replace the existing rule.",
+                                                        target='append-or-replace'),
+                                    ], className="mr-3"),
+                                ]),
+                                html.Div([
+                                    dbc.Col([
+                                        dbc.FormGroup([
+                                            dbc.RadioItems(
+                                                    options=[{'label':'Train data', 'value':'train'},
+                                                            {'label':'Validation data', 'value':'val'}],
+                                                    value='train',
+                                                    id='train-or-val', 
+                                                    inline=True),
+                                            ], className="mr-3"),
+                                    ]),
+                                ], style=dict(display="none") if self.X_val is None else dict()),     
+                            ], form=True),
+                        ]),
+                    ], style=dict(marginBottom=10)),
+                    dbc.Card([
                         dbc.CardHeader([
-                            html.H3("Parallel Plot"),
-                            dbc.Form([
-                                dbc.FormGroup([
-                                    dbc.Label("Selected rule:", html_for='selected-rule-id', className="mr-2"),
-                                    dcc.Dropdown(id='selected-rule-id', options=[
-                                        {'label':str(ruleid), 'value':int(ruleid)} 
-                                            for ruleid in range(self.model._get_max_rule_id()+1)],
-                                            value=0, clearable=False),
-                                    dbc.Tooltip("You can either select a rule id here or by clicking in the model graph. "
-                                                "The parallel plot will show either all the unlabeled data after this rule "
-                                                "(when you select 'append'), or all the unlabeled data coming into this rule "
-                                                "(when you select 'replace')", target='selected-rule-id'),
-                                ], className="mr-3"),
-                                dbc.FormGroup([
-                                    dbc.RadioItems(
-                                        options=[{'label':'Append after (show data out)', 'value':'append'},
-                                                {'label':'Replace (show data in)', 'value':'replace'}],
-                                        value='append',
-                                        id='append-or-replace', 
-                                        inline=True),
-                                    dbc.Tooltip("When you select to 'append' a rule, the Parallel Plot will show "
-                                                "all the data that is still unlabeled after the selected rule. "
-                                                "When you add a rule it will appended to a CaseWhen block. "   
-                                                "When you select 'replace' the Parallel Plot will display the data going into "
-                                                "this rule. When you add a rule, it will replace the existing rule.",
-                                                    target='append-or-replace'),
-                                ], className="mr-3"),
-                            ], inline=True),
+                            html.H3("Parallel Feature Plot", className="card-title"),
+                            html.H6("Select (multiple) feature ranges to generate split or predict rules", className="card-subtitle"),   
                         ]),
                         dbc.CardBody([
                             dbc.Row([
@@ -295,7 +311,7 @@ class RuleClassifierDashboard:
                                                         dbc.Label("Display: ", html_for='model-graph-scatter-text', className="mr-2"),
                                                         dcc.Dropdown(id='model-graph-scatter-text',
                                                             options=[dict(label=o, value=o) for o in ['name', 'description', 'coverage', 'accuracy']],
-                                                            value='name', clearable=False,
+                                                            value='description', clearable=False,
                                                             style=dict(width=130)),
                                                     ], row=True, className="mr-3"), 
                                             ], inline=True),
@@ -358,6 +374,7 @@ class RuleClassifierDashboard:
                                         dcc.Dropdown(id='rule-rule', 
                                                     options=[{'label':col, 'value':col} 
                                                                 for col in self._binary_rules], 
+                                                    value = self._binary_rules[0],
                                                     clearable=False),
                                         dbc.Label("Col"),
                                         dcc.Dropdown(id='rule-col', 
@@ -384,10 +401,11 @@ class RuleClassifierDashboard:
                             dbc.Collapse(
                                 dbc.Card(dbc.CardBody(
                                     html.Div([
-                                        dbc.Label("Node"),
+                                        dbc.Label("Split"),
                                         dcc.Dropdown(id='node-rule', 
                                                     options=[{'label':col, 'value':col} 
                                                                 for col in self._binary_nodes],
+                                                    value = self._binary_nodes[0],
                                                     clearable=False),
                                         dbc.Label("Col"),
                                         dcc.Dropdown(id='node-col', 
@@ -397,7 +415,7 @@ class RuleClassifierDashboard:
                                         dbc.Label("Cutoff"),
                                         dbc.Input(id='node-cutoff', type="number"),
                                         html.P(),
-                                        dbc.Button("Add Node", id='add-binarynode-button', color="primary", size="sm"),    
+                                        dbc.Button("Add Split", id='add-binarynode-button', color="primary", size="sm"),    
                                     ]))),
                                 id="collapse-binarynode",
                             ),
@@ -450,6 +468,16 @@ class RuleClassifierDashboard:
                             ),
                         ]),
                     ]), 
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.Div([
+                                dbc.Button("Remove Rule", id='remove-rule-button', color="danger"),
+                            ]),
+                            html.Div([
+                                dbc.Button("Reset Model", id='reset-model-button', color="danger"),
+                            ], style=dict(marginTop=10))   
+                        ]),
+                    ], style=dict(marginTop=20)),
                 ], md=3),
             ]),
             dbc.Row([
@@ -479,7 +507,7 @@ class RuleClassifierDashboard:
         )
         def update_isinrule_cats(col, rule_id, train_or_val, old_cats, model):
             if col is not None and rule_id is not None:
-                model = RuleClassifier.from_json(model)
+                model = self._get_model(model)
                 X, y = (self.X, self.y) if train_or_val == 'train' else (self.X_val, self.y_val)
                 X, y = model.get_rule_input(rule_id, X, y)
                 cats = X[col].unique().tolist()
@@ -501,7 +529,7 @@ class RuleClassifierDashboard:
         )
         def update_isinrule_cats(col, rule_id, train_or_val, old_cats, model):
             if col is not None and rule_id is not None:
-                model = RuleClassifier.from_json(model)
+                model = self._get_model(model)
                 X, y = (self.X, self.y) if train_or_val == 'train' else (self.X_val, self.y_val)
                 X, y = model.get_rule_input(rule_id, X, y)
                 cats = X[col].unique().tolist()
@@ -523,12 +551,14 @@ class RuleClassifierDashboard:
             Input('prediction-updated-model', 'data'),
             Input('isinrule-updated-model', 'data'),
             Input('isinnode-updated-model', 'data'),
+            Input('removerule-updated-model', 'data'),
+            Input('resetmodel-updated-model', 'data'),
             Input('model-store', 'modified_timestamp'),
             State('model-store', 'data')
         )
         def store_model(casewhen_update, empty_update, parallel_update, 
             rule_update, node_update, prediction_update, isinrule_update, isinnode_update, 
-            ts, model):
+            removerule_update, resetmodel_update, ts, model):
             if model is None:
                 return self.model.to_json()
             
@@ -536,20 +566,24 @@ class RuleClassifierDashboard:
             trigger = ctx.triggered[0]['prop_id'].split('.')[0]
             if trigger == 'casewhen-updated-model':
                 if casewhen_update is not None: return casewhen_update
-            if trigger == 'empty-updated-model':
+            elif trigger == 'empty-updated-model':
                 if empty_update is not None: return empty_update
-            if trigger == 'parallel-updated-model':
+            elif trigger == 'parallel-updated-model':
                 if parallel_update is not None: return parallel_update
-            if trigger == 'rule-updated-model':
+            elif trigger == 'rule-updated-model':
                 if rule_update is not None: return rule_update
-            if trigger == 'node-updated-model':
+            elif trigger == 'node-updated-model':
                 if node_update is not None: return node_update
-            if trigger == 'prediction-updated-model':
+            elif trigger == 'prediction-updated-model':
                 if prediction_update is not None: return prediction_update
-            if trigger == 'isinrule-updated-model':
+            elif trigger == 'isinrule-updated-model':
                 if isinrule_update is not None: return isinrule_update
-            if trigger == 'isinnode-updated-model':
+            elif trigger == 'isinnode-updated-model':
                 if isinnode_update is not None: return isinnode_update
+            elif trigger == 'removerule-updated-model':
+                if removerule_update is not None: return removerule_update
+            elif trigger == 'resetmodel-updated-model':
+                if resetmodel_update is not None: return resetmodel_update
             raise PreventUpdate
 
         @app.callback(
@@ -562,11 +596,14 @@ class RuleClassifierDashboard:
             Input('prediction-updated-rule-id', 'data'),
             Input('isinrule-updated-rule-id', 'data'),
             Input('isinnode-updated-rule-id', 'data'),
+            Input('removerule-updated-rule-id', 'data'),
+            Input('resetmodel-updated-rule-id', 'data'),
             Input('model-graph', 'clickData'),
         )
         def update_model(casewhen_rule_id, empty_rule_id, parallel_rule_id, 
                          rule_rule_id, node_rule_id, prediction_rule_id, 
-                         isinrule_rule_id, isinnode_rule_id, clickdata):
+                         isinrule_rule_id, isinnode_rule_id, removerule_rule_id, 
+                         resetmodel_rule_id, clickdata):
             ctx = dash.callback_context
             trigger = ctx.triggered[0]['prop_id'].split('.')[0]
             if trigger == 'model-graph':
@@ -591,6 +628,10 @@ class RuleClassifierDashboard:
                 return isinrule_rule_id
             elif trigger == 'isinnode-updated-rule-id':
                 return isinnode_rule_id
+            elif trigger == 'removerule-updated-rule-id':
+                return removerule_rule_id
+            elif trigger == 'resetmodel-updated-rule-id':
+                return resetmodel_rule_id
             raise PreventUpdate
 
         @app.callback(
@@ -783,9 +824,9 @@ class RuleClassifierDashboard:
                 model = self._get_model(model)
                 new_rule_id = None
                 if append_or_replace=='append':
-                    new_rule_id = model.append_rule(rule_id, IsInNode(col=col, cats=cats))
+                    new_rule_id = model.append_rule(rule_id, IsInSplit(col=col, cats=cats))
                 elif append_or_replace=='replace':
-                    new_rule = model.replace_rule(rule_id, IsInNode(col=col, cats=cats))
+                    new_rule = model.replace_rule(rule_id, IsInSplit(col=col, cats=cats))
                     new_rule_id = new_rule._rule_id
                 return new_rule_id, model.to_json()
             raise PreventUpdate
@@ -846,7 +887,7 @@ class RuleClassifierDashboard:
             if append_or_replace == 'replace' and rule_id is not None:
                 model = self._get_model(model)
                 rule = model.get_rule(rule_id)
-                if any([isinstance(rule, binnode) for binnode in [LesserThanNode, LesserEqualThanNode, GreaterThanNode, GreaterEqualThanNode]]):
+                if any([isinstance(rule, binnode) for binnode in [LesserThanSplit, LesserEqualThanSplit, GreaterThanSplit, GreaterEqualThanSplit]]):
                     return rule.__class__.__name__, rule.col, rule.cutoff
             raise PreventUpdate
         
@@ -896,9 +937,9 @@ class RuleClassifierDashboard:
                 ctx = dash.callback_context
                 trigger = ctx.triggered[0]['prop_id'].split('.')[0]
                 if trigger == 'add-parallel-rule-button':
-                    rule = MultiRangeAndRule(range_dict, prediction)
+                    rule = MultiRange(range_dict, prediction)
                 elif trigger == 'add-parallel-node-button':
-                    rule = MultiRangeAndNode(range_dict)
+                    rule = MultiRangeSplit(range_dict)
                 else:
                     raise PreventUpdate
                     
@@ -909,6 +950,31 @@ class RuleClassifierDashboard:
                     new_rule = model.replace_rule(rule_id, rule)
                     new_rule_id = new_rule._rule_id
                 return new_rule_id, model.to_json()
+            raise PreventUpdate
+
+        @app.callback(
+            Output('removerule-updated-rule-id', 'data'),
+            Output('removerule-updated-model', 'data'),
+            Input('remove-rule-button', 'n_clicks'),
+            State('selected-rule-id', 'value'),
+            State('model-store', 'data'),
+        )
+        def update_model_prediction(n_clicks, rule_id, model):
+            if n_clicks is not None:
+                model = self._get_model(model)
+                model.remove_rule(rule_id)
+                return min(rule_id, model._get_max_rule_id()), model.to_json()
+            raise PreventUpdate
+
+        @app.callback(
+            Output('resetmodel-updated-rule-id', 'data'),
+            Output('resetmodel-updated-model', 'data'),
+            Input('reset-model-button', 'n_clicks'),
+            State('selected-rule-id', 'value'),
+        )
+        def update_model_prediction(n_clicks, rule_id):
+            if n_clicks is not None:
+                return 0, self.model.to_json()
             raise PreventUpdate
                                                          
         @app.callback(
@@ -938,8 +1004,8 @@ class RuleClassifierDashboard:
                     append_or_replace=='replace'):
                     rule = model.get_rule(rule_id)
 
-                    if (isinstance(rule, MultiRangeAndRule) or 
-                        isinstance(rule, MultiRangeAndNode)):
+                    if (isinstance(rule, MultiRange) or 
+                        isinstance(rule, MultiRangeSplit)):
                         plot_data = fig['data'][0]['dimensions']
                         for col, ranges in rule.range_dict.items():
                             for dimension in fig['data'][0]['dimensions']:
@@ -978,7 +1044,7 @@ class RuleClassifierDashboard:
                     if col_data['label'] != 'y' and 'constraintrange' in col_data:
                         range_dict[col_data['label']] = self._process_constraintrange(
                             col_data['constraintrange'], col_data['ticktext'] if 'ticktext' in col_data else None)
-                rule = MultiRangeAndNode(range_dict)
+                rule = MultiRangeSplit(range_dict)
                 
                 after = (append_or_replace == 'append')
                 pie_size = 50
@@ -1053,8 +1119,8 @@ class RuleClassifierDashboard:
             raise PreventUpdate
 
              
-    def run(self):
-        self.app.run_server(port=self.port, debug=True, use_reloader=False)
+    def run(self, debug=False):
+        self.app.run_server(port=self.port, use_reloader=False, debug=debug)
 
                     
         

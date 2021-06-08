@@ -46,7 +46,7 @@ Any flowers not labeled get the default label=1 (versicolor):
 from rule_estimator import *
 
 model = RuleClassifier(
-    LesserThanNode("petal length (cm)", 1.91, # BinaryNode
+    LesserThanSplit("petal length (cm)", 1.91, # BinarySplit
         if_true=PredictionRule(prediction=0), # DummyRule: always predict 0
         if_false=CaseWhen([
                     # Go through these rules and if one applies, assign the prediction
@@ -85,7 +85,7 @@ print(model.describe())
 
 ```
 RuleClassifier
-  0: LesserThanNode: petal length (cm) < 1.91
+  0: LesserThanSplit: petal length (cm) < 1.91
     1: PredictionRule: Always predict 0
     2: CaseWhen (default=1)
        3: LesserThan: If petal length (cm) < 4.5 then predict 1
@@ -111,7 +111,7 @@ print(model.to_yaml())
 
 ```yaml
 # RuleClassifier
-#   0: LesserThanNode: petal length (cm) < 1.91
+#   0: LesserThanSplit: petal length (cm) < 1.91
 #     1: PredictionRule: Always predict 0
 #     2: CaseWhen (default=1)
 #        3: LesserThan: If petal length (cm) < 4.5 then predict 1
@@ -126,8 +126,8 @@ __businessrule__:
     rules:
       __businessrule__:
         module: rule_estimator.business_rules
-        name: LesserThanNode
-        description: 'LesserThanNode: petal length (cm) < 1.91'
+        name: LesserThanSplit
+        description: 'LesserThanSplit: petal length (cm) < 1.91'
         params:
           col: petal length (cm)
           cutoff: 1.91
@@ -218,7 +218,7 @@ model.score_rules(X, y)
 ```
 |    |   rule_id | name           | description                                            |   prediction |   n_inputs |   n_outputs |   coverage |   accuracy |
 |---:|----------:|:---------------|:-------------------------------------------------------|-------------:|-----------:|------------:|-----------:|-----------:|
-|  0 |         0 | LesserThanNode | LesserThanNode: petal length (cm) < 1.91               |          nan |        150 |         150 |  1         |   0.946667 |
+|  0 |         0 | LesserThanSplit | LesserThanSplit: petal length (cm) < 1.91               |          nan |        150 |         150 |  1         |   0.946667 |
 |  1 |         1 | PredictionRule | PredictionRule: Always predict 0                       |            0 |         50 |          50 |  1         |   1        |
 |  2 |         2 | CaseWhen       | CaseWhen                                               |          nan |        100 |          74 |  0.74      |   1        |
 |  3 |         2 | ↳              | default: predict 1                                     |            1 |        100 |          26 |  0.26      |   0.692308 |
@@ -291,7 +291,7 @@ to fit on the entire dataset `X` instead:
 from sklearn.tree import DecisionTreeClassifier
 
 rules_plus_final_estimator = RuleClassifier(
-    LesserThanNode("petal length (cm)", 1.9, 
+    LesserThanSplit("petal length (cm)", 1.9, 
                if_true=PredictionRule(0), 
                if_false=CaseWhen([
                     LesserThan("petal length (cm)", 4.5, 1),
@@ -343,14 +343,14 @@ will get a `np.nan` prediction.
 `CaseWhen` processes a list of `BusinessRules` one-by-one, if a rule applies
     it assigns the prediction, then passes the remaining rows to the next Rule, etc.
     
-There are also four `BinaryNodes` defined. These evaluate a condition,
+There are also four `BinarySplits` defined. These evaluate a condition,
 and if the condition holds pass the prediction off to `BusinessRule` `if_true`,
 and otherwise to `BusinessRule` `if_false`:
 
--  `GreaterThanNode`
--  `GreaterEqualThanNode`
--  `LesserThanNode`
--  `LesserEqualThanNode`
+-  `GreaterThanSplit`
+-  `GreaterEqualThanSplit`
+-  `LesserThanSplit`
+-  `LesserEqualThanSplit`
 
 # Defining your own BusinessRules
 
@@ -388,7 +388,7 @@ so worth the effort of replacing it with something better.
 
 ```python
 model = RuleClassifier(
-    LesserThanNode("petal length (cm)", 1.91, # BinaryNode
+    LesserThanSplit("petal length (cm)", 1.91, # BinarySplit
         if_true=PredictionRule(prediction=0), # PredictionRule: always predict 0
         if_false=VersicolorRule()
     ),   
@@ -400,7 +400,7 @@ model.describe()
 Here's the output:
 ```
 RuleClassifier
-  0: LesserThanNode: petal length (cm) < 1.91
+  0: LesserThanSplit: petal length (cm) < 1.91
     1: PredictionRule: Always predict 0
     2: VersicolorRule: if petal length < 4.6 or petal width < 1.5 predict 1 (default=2)
 ```

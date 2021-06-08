@@ -8,8 +8,8 @@
 ### New Features
 - new `estimator.parallel_coordinates(X, y, rule_id)` method to plot a parallel 
     coordinates plot of data entering rule `rule_id`.
-- new rules: `MultiRangeAndRule` and `MultiRangeOrRule`.
-- new nodes: `MultiRangeAndNode` and `MultiRangeOrNode`.
+- new rules: `MultiRange` and `MultiRangeAny`.
+- new nodes: `MultiRangeSplit` and `MultiRangeAnySplit`.
 
 ### Bug Fixes
 - Fixes bugs with `replace_rule` and `append_rule`
