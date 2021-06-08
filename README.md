@@ -5,6 +5,8 @@ this package makes it easy to build scikit-learn compatible business-rule estima
 These estimators can be stored to a human readable `.yaml` file, 
 edited and then reloaded from such a `.yaml` file. 
 
+You can also start a dashboard to help building your rule-based model.
+
 This estimator can be integrated into a scikit-learn `Pipeline`, including data
 preprocessing steps. You can add a `final_estimator` for all cases where there is no applicable business rule, in which case they will be processed by this `final_estimator`.
 
@@ -24,16 +26,29 @@ There are two main usecases for this:
 pip install rule-estimator
 ```
 
-# Example
+# Dashboard
 
-## Load imports and data
-
-```python
-from sklearn.datasets import load_iris
-
-X, y = load_iris(return_X_y=True, as_frame=True)
+The dashboard is a dash implementation of the ideas of Vincent Warmerdam as presented in
+his [CSV conference talk](https://csvconf.com/speakers/#vincent-warmerdam). 
+The dashboard only works with classification problems for now. You can start a 
+`RuleClassifierDashboard` by instantiating it and calling `.run()`:
 
 ```
+from rule_estimator import *
+from rule_estimator.datasets import titanic_X_y, titanic_labels
+
+
+X, y = titanic_X_y()
+RuleClassifierDashboard(X, y, val_size=0.25, labels=titanic_labels).run(port=8050)
+```
+
+This will start a dashboard at `http://localhost:8050` that allows you to build
+your decision rules using a Parallel Plot. You can visualize the tree structure,
+append, replace or remove rules, export to pickle or yaml, compare the performance
+of various rules and more. 
+
+# Example
+
 
 ## Instantiate RuleClassifier
 
@@ -44,6 +59,8 @@ Any flowers not labeled get the default label=1 (versicolor):
 
 ```python
 from rule_estimator import *
+from rule_estimator.datasets import iris_X_y
+X, y = iris_X_y()
 
 model = RuleClassifier(
     LesserThanSplit("petal length (cm)", 1.91, # BinarySplit
