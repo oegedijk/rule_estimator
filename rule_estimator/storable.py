@@ -184,7 +184,7 @@ class Storable:
             json_path_or_str: filepath with a file ending in .json or a json encoded string
         """
         if str(json_path_or_str).endswith(".json"):
-            json_str = open(str(Path(filepath)), "r")
+            json_str = open(str(Path(json_path_or_str)), "r")
         else:
             json_str = json_path_or_str
         return decode_storables(json.loads(json_str))
