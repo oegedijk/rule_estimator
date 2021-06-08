@@ -231,13 +231,13 @@ class RuleClassifierDashboard:
                                     dbc.FormGroup([
                                         html.Div([
                                             dbc.Button("Split on Selection", id='add-parallel-node-button', 
-                                                            color="primary", size="sm"),
+                                                            color="primary", size="m"),
                                             dbc.Tooltip("Make a split using the selection in the Parallel Plot. "
                                                     "Data in the selected ranges goes left (true), all other data "
                                                     "goes right (false).", target='add-parallel-node-button'),
                                         ], style=dict(horizontalAlign='center'))  
                                     ]),
-                                ], md=6),
+                                ], md=4),
                                 dbc.Col([
                                     dbc.FormGroup([
                                             dbc.Label("Prediction: ", size="sm", html_for='parallel-prediction'),
@@ -253,33 +253,40 @@ class RuleClassifierDashboard:
                                 dbc.Col([
                                     dbc.FormGroup([
                                             dbc.Button("Predict Selected Only", id='add-parallel-rule-button', 
-                                                    color="primary", size="sm", style=dict(marginRight=10)),
+                                                    color="primary", size="s", style=dict(marginRight=10)),
                                             dbc.Tooltip("Apply the prediction to all data within the ranges "
                                                         "selected in the Parallel Plot.", target='add-parallel-rule-button'),
                                             dbc.Button("Predict All", id='add-prediction-button', 
-                                                        color="primary", size="sm"),
+                                                        color="primary", size="m"),
                                             dbc.Tooltip("Add a PredictionRule: Apply a single uniform prediction to all the "
                                                         "data without distinction.", target='add-prediction-button'),
                                     ], row=True),
-                                ], md=3),
+                                ], md=5),
                             ], form=True),
                         ]),
                         dbc.CardFooter([
                             dbc.Row([
                                 dbc.Col([
                                     dbc.Label("All data", id='pie-all-label'),
+                                    dbc.Tooltip("Label distribution for all observations", target='pie-all-label'),
                                     dcc.Graph(id='pie-all', config=dict(modeBarButtons=[[]], displaylogo=False)),  
                                 ]),
                                 dbc.Col([
                                     dbc.Label("This data", id='pie-rule-id-label'),
+                                    dbc.Tooltip("Label distribution for all observations in the parallel plot above.", 
+                                            target='pie-rule-id-label'),
                                     dcc.Graph(id='pie-rule-id', config=dict(modeBarButtons=[[]], displaylogo=False)),   
                                 ]),
                                 dbc.Col([
                                     dbc.Label("Selected", id='pie-parallel-selection-label'),
+                                    dbc.Tooltip("Label distribution for all the feature ranges selected above", 
+                                            target='pie-parallel-selection-label'),
                                     dcc.Graph(id='pie-parallel-selection', config=dict(modeBarButtons=[[]], displaylogo=False)),   
                                 ]),
                                 dbc.Col([
                                     dbc.Label("Not selected", id='pie-parallel-non-selection-label'),
+                                    dbc.Tooltip("Label distribution for all the feature ranges not selected above", 
+                                            target='pie-parallel-non-selection-label'),
                                     dcc.Graph(id='pie-parallel-non-selection', config=dict(modeBarButtons=[[]], displaylogo=False)),
                                 ]),
                             ]),
@@ -358,15 +365,18 @@ class RuleClassifierDashboard:
                         dbc.CardBody([
                             html.Div([html.P()]),
                             dbc.Button("CaseWhen", id='add-casewhen-button', color="primary", size="m"),
+                            dbc.Tooltip("Add a new CaseWhen rule. You can append multiple rules to a CaseWhen wrapper "
+                                        "that will be evaluated one-by-one.", target='add-casewhen-button'),
                             html.Div([html.P()]),
                             dbc.Button("EmptyRule", id='add-empty-button', color="primary", size="m"),
+                            dbc.Tooltip("Add or replace with an EmptyRule that does not provide any prediction, "
+                                        "but simply acts as a placeholder for other rules.", target='add-casewhen-button'),
                             html.Div([html.P()]),
                             dbc.Button(
-                                "Cutoff Predict",
-                                id="collapse-binaryrule-button",
-                                className="mb-3",
-                                size="m"
-                            ),
+                                "Cutoff Predict", id="collapse-binaryrule-button",
+                                className="mb-3", size="m"),
+                            dbc.Tooltip("Add a rule with a single cutoff for a single numerical feature. Rule can either "
+                                        "be of type >, >=, < or <= ", target='collapse-binaryrule-button'),
                             dbc.Collapse(
                                 dbc.Card(dbc.CardBody(
                                     html.Div([
@@ -398,6 +408,8 @@ class RuleClassifierDashboard:
                                 className="mb-3",
                                 size="m",
                             ),
+                            dbc.Tooltip("Add a split with a single cutoff for a single numerical feature. Split can either "
+                                        "be of type >, >=, < or <= ", target='collapse-binarynode-button'),
                             dbc.Collapse(
                                 dbc.Card(dbc.CardBody(
                                     html.Div([
@@ -425,6 +437,8 @@ class RuleClassifierDashboard:
                                 className="mb-3",
                                 size="m"
                             ),
+                            dbc.Tooltip("Add a prediction based on a single categorical feature.", 
+                                            target='collapse-isinrule-button'),
                             dbc.Collapse(
                                 dbc.Card(dbc.CardBody(
                                     html.Div([
@@ -450,6 +464,8 @@ class RuleClassifierDashboard:
                                 className="mb-3",
                                 size="m",
                             ),
+                            dbc.Tooltip("Add a split based on a single categorical feature.", 
+                                            target='collapse-isinnode-button'),
                             dbc.Collapse(
                                 dbc.Card(dbc.CardBody(
                                     html.Div([
@@ -471,10 +487,22 @@ class RuleClassifierDashboard:
                     dbc.Card([
                         dbc.CardBody([
                             html.Div([
-                                dbc.Button("Remove Rule", id='remove-rule-button', color="danger"),
+                                dcc.ConfirmDialogProvider(
+                                    children=html.Button("Remove Rule", id='remove-rule-button', className="btn btn-danger"),
+                                    id='remove-rule-confirm',
+                                    message='Warning! Once you have removed a rule there is undo button or ctrl-z! Are you sure?'
+                                ),
+                                dbc.Tooltip("Remove the selected rule from the model. Warning! Cannot be undone!", 
+                                            target='remove-rule-button'),
                             ]),
                             html.Div([
-                                dbc.Button("Reset Model", id='reset-model-button', color="danger"),
+                                dcc.ConfirmDialogProvider(
+                                    children=html.Button("Reset Model", id='reset-model-button', className="btn btn-danger"),
+                                    id='reset-model-confirm',
+                                    message='Warning! Once you have reset the model there is undo button or ctrl-z! Are you sure?'
+                                ),
+                                dbc.Tooltip("Reset the model to the initial state. Warning! Can ot be undone!", 
+                                            target='reset-model-button'),
                             ], style=dict(marginTop=10))   
                         ]),
                     ], style=dict(marginTop=20)),
@@ -955,11 +983,11 @@ class RuleClassifierDashboard:
         @app.callback(
             Output('removerule-updated-rule-id', 'data'),
             Output('removerule-updated-model', 'data'),
-            Input('remove-rule-button', 'n_clicks'),
+            Input('remove-rule-confirm', 'submit_n_clicks'),
             State('selected-rule-id', 'value'),
             State('model-store', 'data'),
         )
-        def update_model_prediction(n_clicks, rule_id, model):
+        def remove_rule(n_clicks, rule_id, model):
             if n_clicks is not None:
                 model = self._get_model(model)
                 model.remove_rule(rule_id)
@@ -969,10 +997,10 @@ class RuleClassifierDashboard:
         @app.callback(
             Output('resetmodel-updated-rule-id', 'data'),
             Output('resetmodel-updated-model', 'data'),
-            Input('reset-model-button', 'n_clicks'),
+            Input('reset-model-confirm', 'submit_n_clicks'),
             State('selected-rule-id', 'value'),
         )
-        def update_model_prediction(n_clicks, rule_id):
+        def reset_model(n_clicks, rule_id):
             if n_clicks is not None:
                 return 0, self.model.to_json()
             raise PreventUpdate
@@ -1014,7 +1042,6 @@ class RuleClassifierDashboard:
                                         dimension['constraintrange'] = self._cats_to_range(ranges, dimension['ticktext'])
                                     else:
                                         dimension['constraintrange'] = ranges
-                                    print("REMOVEME dimension", col, dimension['constraintrange'] )
                 if trigger == 'train-or-val' and old_fig['data'] and 'dimensions' in old_fig['data'][0]:
                     fig['data'][0]['dimensions'] = old_fig['data'][0]['dimensions']
             return fig

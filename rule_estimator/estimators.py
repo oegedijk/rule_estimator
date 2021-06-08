@@ -522,7 +522,7 @@ class RuleEstimator(BusinessRule):
                         opacity=0.8
                         ))
 
-        fig.update_layout(showlegend=False, margin=dict(b=0, t=0, l=0, r=0))
+        fig.update_layout(showlegend=False, dragmode='pan', margin=dict(b=0, t=0, l=0, r=0))
         fig.update_xaxes(visible=False, range=(min(nodes_x)-4, max(nodes_x)+4))
         fig.update_yaxes(visible=False)
         return fig
