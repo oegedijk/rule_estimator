@@ -7,6 +7,7 @@ from importlib import import_module
 from pathlib import Path
 from typing import Union, List, Dict, Tuple
 import pickle
+import json
 
 import oyaml as yaml
 
@@ -66,7 +67,7 @@ def encode_storables_to_python_code(obj, tabs=0)->str:
     if hasattr(obj, "_stored_params"):
         return f"{linestart}{obj.__class__.__name__}({indent}" + f',{indent}'.join([f'{k}={encode_storables_to_python_code(v, tabs+1)}' for k, v in obj._stored_params.items()]) +f"{linestart})"     
     if isinstance(obj, dict):
-        return f"{{{', '.join([f'{encode_storables_to_python_code(k)}={encode_storables_to_python_code(v, tabs+1)}' for k, v in obj.items()])}}}"
+        return f"{{{', '.join([f'{encode_storables_to_python_code(k)}:{encode_storables_to_python_code(v, tabs+1)}' for k, v in obj.items()])}}}"
     elif isinstance(obj, list):
         return f"[{', '.join([encode_storables_to_python_code(o, tabs+1) for o in obj])}]"
     elif isinstance(obj, str):
@@ -154,6 +155,37 @@ class Storable:
 
         config = yaml.safe_load(open(str(Path(filepath)), "r"))
         return decode_storables(config)
+
+    def to_json(self, filepath:Union[Path, str]=None)->Union[str, None]:
+        """Store object to a yaml format.
+
+        Args:
+            filepath: file where to store the .yaml file. If None then just return the
+                yaml as a str.
+            return_dict: instead of return a yaml str, return the raw dict.
+
+        """
+        config_dict = encode_storables(self)
+        json_str = json.dumps(config_dict)
+
+        if filepath is not None:
+            with open(Path(filepath), "w") as f:
+                f.write(json_str)
+        else:
+            return json_str
+
+    @classmethod
+    def from_json(cls, json_path_or_str:Union[Path, str]=None):
+        """Instantiate object from a yaml format.
+
+        Args:
+            json_path_or_str: filepath with a file ending in .json or a json encoded string
+        """
+        if str(json_path_or_str).endswith(".json"):
+            json_str = open(str(Path(filepath)), "r")
+        else:
+            json_str = json_path_or_str
+        return decode_storables(json.loads(json_str))
 
     def pickle(self, filename:Path=None):
         if filename is not None:

@@ -2,6 +2,7 @@ __all__ = [
     'CaseWhen',
     'EmptyRule',
     'PredictionRule',
+    'IsInRule',
     'GreaterThan', 
     'GreaterEqualThan', 
     'LesserThan', 
@@ -189,6 +190,12 @@ class CaseWhen(BusinessRule):
         for rule in self.rules:
             casewhens = rule._get_casewhens(casewhens)
         return casewhens
+
+    def _get_binarynodes(self, binarynodes:dict=None):
+        binarynodes = super()._get_binarynodes(binarynodes)
+        for rule in self.rules:
+            binarynodes = rule._get_binarynodes(binarynodes)
+        return binarynodes
             
     def add_to_igraph(self, graph:Graph=None)->Graph:
         graph = super().add_to_igraph(graph)
@@ -205,14 +212,14 @@ class CaseWhen(BusinessRule):
 
 
 class EmptyRule(BusinessRule):
-    def __init__(self, prediction=None, default=None):
+    def __init__(self):
         super().__init__()
 
     def __rule__(self, X):
         return pd.Series(np.full(len(X), False))
 
     def __rulerepr__(self):
-        return f"EmptyRule: Always predict {self.default}"
+        return f"EmptyRule: do not alter prediction"
 
 class PredictionRule(BusinessRule):
     def __init__(self, prediction=None):
@@ -222,7 +229,20 @@ class PredictionRule(BusinessRule):
         return pd.Series(np.full(len(X), True))
 
     def __rulerepr__(self):
-        return f"PredictionRule: Always predict {self.prediction}"
+        return f"Predict all as {self.prediction}"
+
+
+class IsInRule(BusinessRule):
+    def __init__(self, col:str, cats:List[str], prediction:Union[float, int], default=None):
+        super().__init__()
+        if not isinstance(self.cats, list):
+            self.cats = [self.cats]
+
+    def __rule__(self, X:pd.DataFrame):
+        return X[self.col].isin(self.cats)
+    
+    def __rulerepr__(self):
+        return f"If {self.col} in {self.cats} then predict {self.prediction}"
 
 
 class GreaterThan(BusinessRule):
@@ -233,7 +253,7 @@ class GreaterThan(BusinessRule):
         return X[self.col] > self.cutoff
 
     def __rulerepr__(self):
-        return f"GreaterThan: If {self.col} > {self.cutoff} then predict {self.prediction}"
+        return f"If {self.col} > {self.cutoff} then predict {self.prediction}"
 
 
 class GreaterEqualThan(BusinessRule):
@@ -244,7 +264,7 @@ class GreaterEqualThan(BusinessRule):
         return X[self.col] >= self.cutoff
 
     def __rulerepr__(self):
-        return f"GreaterEqualThan: If {self.col} >= {self.cutoff} then predict {self.prediction}"
+        return f"If {self.col} >= {self.cutoff} then predict {self.prediction}"
 
 
 class LesserThan(BusinessRule):
@@ -255,7 +275,7 @@ class LesserThan(BusinessRule):
         return X[self.col] < self.cutoff
 
     def __rulerepr__(self):
-        return f"LesserThan: If {self.col} < {self.cutoff} then predict {self.prediction}"
+        return f"If {self.col} < {self.cutoff} then predict {self.prediction}"
 
 
 class LesserEqualThan(BusinessRule):
@@ -266,7 +286,7 @@ class LesserEqualThan(BusinessRule):
         return X[self.col] <= self.cutoff
 
     def __rulerepr__(self):
-        return f"LesserEqualThan: If {self.col} <= {self.cutoff} then predict {self.prediction}"
+        return f"If {self.col} <= {self.cutoff} then predict {self.prediction}"
 
 
 class MultiRangeAndRule(BusinessRule):
@@ -290,7 +310,7 @@ class MultiRangeAndRule(BusinessRule):
         return generate_range_mask(self.range_dict, X, kind='all')
         
     def __rulerepr__(self):
-        return ("MultiRangeAndRule: If " 
+        return ("If " 
                     + " AND ".join([f"{k} in {v}" for k, v in self.range_dict.items()])
                     + f" then predict {self.prediction}")
 
@@ -316,6 +336,5 @@ class MultiRangeOrRule(BusinessRule):
         return generate_range_mask(self.range_dict, X, kind='any')
 
     def __rulerepr__(self):
-        return ("MultiRangeOrRule: If " 
-                    + " OR ".join([f"{k} in {v}" for k, v in self.range_dict.items()])
+        return ("If " + " OR ".join([f"{k} in {v}" for k, v in self.range_dict.items()])
                     + f" then predict {self.prediction}")

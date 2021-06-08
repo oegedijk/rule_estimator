@@ -61,7 +61,15 @@ def generate_range_mask(range_dict:dict, X:pd.DataFrame, kind:str='all')->pd.Ser
             'petal width (cm)': [1.6, 2.6]
         }
         ```
-
+        
+        Can also be categorical:
+        
+        ```
+        range_dict = {
+            'gender': ['male']
+        }
+        ```
+        
     Args:
         range_dict (dict): dictionary describing which ranges for which columns should be evaluated
         X (pd.DataFrame): input dataframe
@@ -71,6 +79,12 @@ def generate_range_mask(range_dict:dict, X:pd.DataFrame, kind:str='all')->pd.Ser
     Returns:
         pd.Series: boolean mask
     """
+    
+    def get_mask(X, col, col_range):
+        if isinstance(col_range[0], str):
+            return X[col].isin(col_range)
+        else:
+            return (X[col] > col_range[0]) & (X[col] < col_range[1])
 
     def AND_masks(masks):
         for i, mask in enumerate(masks):
@@ -84,8 +98,8 @@ def generate_range_mask(range_dict:dict, X:pd.DataFrame, kind:str='all')->pd.Ser
 
     def generate_range_mask(X, col, col_range):
         if isinstance(col_range[0], list):
-            return OR_masks([(X[col] > l) & (X[col] < h) for l, h in col_range])
-        return (X[col] > col_range[0]) & (X[col] < col_range[1])
+            return OR_masks([get_mask(X, col, cr) for cr in col_range])
+        return get_mask(X, col, col_range)
     
     if not range_dict:
         return pd.Series(np.full(len(X), False), index=X.index)
@@ -252,6 +266,12 @@ class BusinessRule(BaseEstimator, Storable):
             return {}
         else:
             return casewhens
+
+    def _get_binarynodes(self, binarynodes:dict=None):
+        if binarynodes is None:
+            return {}
+        else:
+            return binarynodes
                 
     def add_to_igraph(self, graph:Graph=None)->Graph:
         if graph is None:

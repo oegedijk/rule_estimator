@@ -1,5 +1,6 @@
 __all__ = [
     'BinaryNode',
+    'IsInNode',
     'GreaterThanNode', 
     'GreaterEqualThanNode', 
     'LesserThanNode', 
@@ -31,14 +32,15 @@ class BinaryNode(BusinessRule):
         assert hasattr(self, "if_true")
         if self.if_true is None:
             self.if_true = EmptyRule()
+            self._stored_params['if_true'] = self.if_true
         assert isinstance(self.if_true, BusinessRule)
         
         assert hasattr(self, "if_false")
         if self.if_false is None:
             self.if_false = EmptyRule()
-        assert isinstance(self.if_false, BusinessRule)
-        
-        
+            self._stored_params['if_false'] = self.if_false
+        assert isinstance(self.if_false, BusinessRule) 
+
     def predict(self, X:pd.DataFrame)->np.ndarray:
         y = np.full(len(X), np.nan)
         mask = self.__rule__(X)
@@ -200,6 +202,14 @@ class BinaryNode(BusinessRule):
         casewhens = self.if_true._get_casewhens(casewhens)
         casewhens = self.if_false._get_casewhens(casewhens)
         return casewhens
+
+    def _get_binarynodes(self, binarynodes:dict=None):
+        binarynodes = super()._get_binarynodes(binarynodes)
+        if self._rule_id is not None:
+            binarynodes[self._rule_id] = dict(if_true=self.if_true._rule_id, if_false=self.if_false._rule_id)
+        binarynodes = self.if_true._get_binarynodes(binarynodes)
+        binarynodes = self.if_false._get_binarynodes(binarynodes)
+        return binarynodes
         
     def add_to_igraph(self, graph:Graph=None)->Graph:
         graph = super().add_to_igraph(graph)
@@ -215,6 +225,19 @@ class BinaryNode(BusinessRule):
     def __rulerepr__(self):
         return "BinaryNode"
 
+
+class IsInNode(BinaryNode):
+    def __init__(self, col:str, cats:List[str],
+                 if_true:BusinessRule=None, if_false:BusinessRule=None, default=None):
+        super().__init__()
+        if not isinstance(self.cats, list):
+            self.cats = [self.cats]
+
+    def __rule__(self, X:pd.DataFrame)->pd.Series:
+        return X[self.col].isin(self.cats)
+    
+    def __rulerepr__(self)->str:
+        return f"IsInNode: If {self.col} in {self.cats}"
 
 class GreaterThanNode(BinaryNode):
     def __init__(self, col:str, cutoff:float,
