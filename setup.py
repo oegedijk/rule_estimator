@@ -12,7 +12,7 @@ setup(
     long_description='Scikit-learn compatible business rule estimator, with dashboard included',
     license='Apache-2',
     classifiers=["Development Status :: 3 - Alpha"],
-    install_requires=['pandas', 'numpy', 'scikit-learn', 'oyaml', 'python-igraph', 'dash'],
+    install_requires=['pandas', 'numpy', 'scikit-learn', 'oyaml', 'python-igraph', 'dash', 'dash-bootstrap-component'],
     python_requires='>=3.6',
     author='Oege Dijk',
     author_email='oegedijk@gmail.com',
