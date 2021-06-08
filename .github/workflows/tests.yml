@@ -32,7 +32,6 @@ jobs:
         python -m pip install --upgrade pip setuptools wheel
         pip install flake8 pytest
         pip install --upgrade --upgrade-strategy eager -e .
-        pip install --upgrade --upgrade-strategy eager -r test_requirements.txt
     - name: Lint with flake8
       run: |
         # stop the build if there are Python syntax errors or undefined names
