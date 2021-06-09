@@ -181,115 +181,132 @@ class RuleClassifierDashboard:
                             ], form=True),
                         ]),
                     ], style=dict(marginBottom=10)),
-                    dbc.Card([
-                        dbc.CardHeader([
-                            html.H3("Parallel Feature Plot", className="card-title"),
-                            html.H6("Select (multiple) feature ranges to generate a split or add a prediction rule", className="card-subtitle"),   
-                        ]),
-                        dbc.CardBody([
-                            dbc.Row([
-                                dbc.Col([
-                                    dbc.FormGroup([
-                                            dcc.Dropdown(id='parallel-cols', multi=True,
-                                                options=[{'label':col, 'value':col} 
-                                                        for col in self.X.columns],
-                                                value = self.X.columns.tolist()),
-                                            dbc.Tooltip("Select the features to be displayed in the Parallel Plot", 
-                                                    target='parallel-cols'),
-                                        ]),
-                                ], md=10),
-                                dbc.Col([
-                                    dbc.FormGroup([
-                                        #dbc.Label("Sort by histogram overlap", html_for='sort-by-overlap'),
-                                        dbc.Checklist(
-                                            options=[{"label":  "sort", "value": True}],
-                                            value=[True],
-                                            id='sort-by-overlap',
-                                            inline=True,
-                                            switch=True,
-                                            style=dict(height=40, width=100, horizontalAlign = 'right'),
-                                        ),
-                                        dbc.Tooltip("Sort the features in the plot from least histogram overlap "
-                                                    "(feature distributions look the most different for different "
-                                                    "values of y) on the right, to highest histogram overlap on the left.", 
-                                                    target='sort-by-overlap'),
-                                    ])
-                                ], md=2),
-                            ], form=True),
-                            dbc.Row([
-                                dbc.Col([
-                                    dcc.Graph(id='parallel-plot'),
-                                    html.Div(id='parallel-description'), 
-                                ])
-                            ]),
-                            dbc.Row([
-                                dbc.Col([
-                                    dbc.FormGroup([
-                                        html.Div([
-                                            dbc.Button("Split on Selection", id='add-parallel-node-button', 
-                                                            color="primary", size="m"),
-                                            dbc.Tooltip("Make a split using the selection in the Parallel Plot. "
-                                                    "Data in the selected ranges goes left (true), all other data "
-                                                    "goes right (false).", target='add-parallel-node-button'),
-                                        ], style=dict(horizontalAlign='center'))  
+                    dcc.Tabs(id='rule-tabs', value='parallel-tab', 
+                        children=[
+                            dcc.Tab(label="Parallel Plot", id='parallel-tab', value='parallel-tab', children=[
+                                dbc.Card([
+                                    dbc.CardHeader([
+                                        html.H3("Parallel Feature Plot", className="card-title"),
+                                        html.H6("Select (multiple) feature ranges to generate a split or add a prediction rule", className="card-subtitle"),   
                                     ]),
-                                ], md=4),
-                                dbc.Col([
-                                    dbc.FormGroup([
-                                            dbc.Label("Prediction: ", #size="", 
-                                            html_for='parallel-prediction',
-                                                style=dict(verticalAlignment='text-bottom')),
-                                            dcc.Dropdown(id='parallel-prediction', options=[
-                                                {'label':f"{y}. {label}", 'value':y} for y, label in enumerate(self.labels)],
-                                                value=len(self.labels)-1, clearable=False, 
-                                                style={'height': '20px', 'width':'150px'}),
-                                            dbc.Tooltip("The prediction to be applied. Either to all data ('Predict All'), "
-                                                        "or to the selected data ('Predict Selected'). Will get automatically "
-                                                        "Inferred from the selected data in the Parallel Plot.", target='parallel-prediction'),
-                                        ], row=True),
-                                ], md=3),
-                                dbc.Col([
-                                    dbc.FormGroup([
-                                            dbc.Button("Predict Selected Only", id='add-parallel-rule-button', 
-                                                    color="primary", size="s", style=dict(marginRight=10)),
-                                            dbc.Tooltip("Apply the prediction to all data within the ranges "
-                                                        "selected in the Parallel Plot.", target='add-parallel-rule-button'),
-                                            dbc.Button("Predict All", id='add-prediction-button', 
-                                                        color="primary", size="m"),
-                                            dbc.Tooltip("Add a PredictionRule: Apply a single uniform prediction to all the "
-                                                        "data without distinction.", target='add-prediction-button'),
-                                    ], row=True),
-                                ], md=5),
-                            ], form=True),
-                        ]),
-                        dbc.CardFooter([
-                            dbc.Row([
-                                dbc.Col([
-                                    dbc.Label("All data", id='pie-all-label'),
-                                    dbc.Tooltip("Label distribution for all observations", target='pie-all-label'),
-                                    dcc.Graph(id='pie-all', config=dict(modeBarButtons=[[]], displaylogo=False)),  
+                                    dbc.CardBody([
+                                        dbc.Row([
+                                            dbc.Col([
+                                                dbc.FormGroup([
+                                                        dcc.Dropdown(id='parallel-cols', multi=True,
+                                                            options=[{'label':col, 'value':col} 
+                                                                    for col in self.X.columns],
+                                                            value = self.X.columns.tolist()),
+                                                        dbc.Tooltip("Select the features to be displayed in the Parallel Plot", 
+                                                                target='parallel-cols'),
+                                                    ]),
+                                            ], md=10),
+                                            dbc.Col([
+                                                dbc.FormGroup([
+                                                    #dbc.Label("Sort by histogram overlap", html_for='sort-by-overlap'),
+                                                    dbc.Checklist(
+                                                        options=[{"label":  "sort", "value": True}],
+                                                        value=[True],
+                                                        id='sort-by-overlap',
+                                                        inline=True,
+                                                        switch=True,
+                                                        style=dict(height=40, width=100, horizontalAlign = 'right'),
+                                                    ),
+                                                    dbc.Tooltip("Sort the features in the plot from least histogram overlap "
+                                                                "(feature distributions look the most different for different "
+                                                                "values of y) on the right, to highest histogram overlap on the left.", 
+                                                                target='sort-by-overlap'),
+                                                ])
+                                            ], md=2),
+                                        ], form=True),
+                                        dbc.Row([
+                                            dbc.Col([
+                                                dcc.Graph(id='parallel-plot'),
+                                                html.Div(id='parallel-description'), 
+                                            ])
+                                        ]),
+                                        dbc.Row([
+                                            dbc.Col([
+                                                dbc.FormGroup([
+                                                    html.Div([
+                                                        dbc.Button("Split on Selection", id='add-parallel-node-button', 
+                                                                        color="primary", size="m"),
+                                                        dbc.Tooltip("Make a split using the selection in the Parallel Plot. "
+                                                                "Data in the selected ranges goes left (true), all other data "
+                                                                "goes right (false).", target='add-parallel-node-button'),
+                                                    ], style=dict(horizontalAlign='center'))  
+                                                ]),
+                                            ], md=4),
+                                            dbc.Col([
+                                                dbc.FormGroup([
+                                                        dbc.Label("Prediction: ", #size="", 
+                                                        html_for='parallel-prediction',
+                                                            style=dict(verticalAlignment='text-bottom')),
+                                                        dcc.Dropdown(id='parallel-prediction', options=[
+                                                            {'label':f"{y}. {label}", 'value':y} for y, label in enumerate(self.labels)],
+                                                            value=len(self.labels)-1, clearable=False, 
+                                                            style={'height': '20px', 'width':'150px'}),
+                                                        dbc.Tooltip("The prediction to be applied. Either to all data ('Predict All'), "
+                                                                    "or to the selected data ('Predict Selected'). Will get automatically "
+                                                                    "Inferred from the selected data in the Parallel Plot.", target='parallel-prediction'),
+                                                    ], row=True),
+                                            ], md=3),
+                                            dbc.Col([
+                                                dbc.FormGroup([
+                                                        dbc.Button("Predict Selected Only", id='add-parallel-rule-button', 
+                                                                color="primary", size="s", style=dict(marginRight=10)),
+                                                        dbc.Tooltip("Apply the prediction to all data within the ranges "
+                                                                    "selected in the Parallel Plot.", target='add-parallel-rule-button'),
+                                                        dbc.Button("Predict All", id='add-prediction-button', 
+                                                                    color="primary", size="m"),
+                                                        dbc.Tooltip("Add a PredictionRule: Apply a single uniform prediction to all the "
+                                                                    "data without distinction.", target='add-prediction-button'),
+                                                ], row=True),
+                                            ], md=5),
+                                        ], form=True),
+                                    ]),
+                                    dbc.CardFooter([
+                                        dbc.Row([
+                                            dbc.Col([
+                                                dbc.Label("All data", id='pie-all-label'),
+                                                dbc.Tooltip("Label distribution for all observations", target='pie-all-label'),
+                                                dcc.Graph(id='pie-all', config=dict(modeBarButtons=[[]], displaylogo=False)),  
+                                            ]),
+                                            dbc.Col([
+                                                dbc.Label("This data", id='pie-rule-id-label'),
+                                                dbc.Tooltip("Label distribution for all observations in the parallel plot above.", 
+                                                        target='pie-rule-id-label'),
+                                                dcc.Graph(id='pie-rule-id', config=dict(modeBarButtons=[[]], displaylogo=False)),   
+                                            ]),
+                                            dbc.Col([
+                                                dbc.Label("Selected", id='pie-parallel-selection-label'),
+                                                dbc.Tooltip("Label distribution for all the feature ranges selected above", 
+                                                        target='pie-parallel-selection-label'),
+                                                dcc.Graph(id='pie-parallel-selection', config=dict(modeBarButtons=[[]], displaylogo=False)),   
+                                            ]),
+                                            dbc.Col([
+                                                dbc.Label("Not selected", id='pie-parallel-non-selection-label'),
+                                                dbc.Tooltip("Label distribution for all the feature ranges not selected above", 
+                                                        target='pie-parallel-non-selection-label'),
+                                                dcc.Graph(id='pie-parallel-non-selection', config=dict(modeBarButtons=[[]], displaylogo=False)),
+                                            ]),
+                                        ]),
+                                    ]),
                                 ]),
-                                dbc.Col([
-                                    dbc.Label("This data", id='pie-rule-id-label'),
-                                    dbc.Tooltip("Label distribution for all observations in the parallel plot above.", 
-                                            target='pie-rule-id-label'),
-                                    dcc.Graph(id='pie-rule-id', config=dict(modeBarButtons=[[]], displaylogo=False)),   
-                                ]),
-                                dbc.Col([
-                                    dbc.Label("Selected", id='pie-parallel-selection-label'),
-                                    dbc.Tooltip("Label distribution for all the feature ranges selected above", 
-                                            target='pie-parallel-selection-label'),
-                                    dcc.Graph(id='pie-parallel-selection', config=dict(modeBarButtons=[[]], displaylogo=False)),   
-                                ]),
-                                dbc.Col([
-                                    dbc.Label("Not selected", id='pie-parallel-non-selection-label'),
-                                    dbc.Tooltip("Label distribution for all the feature ranges not selected above", 
-                                            target='pie-parallel-non-selection-label'),
-                                    dcc.Graph(id='pie-parallel-non-selection', config=dict(modeBarButtons=[[]], displaylogo=False)),
+
+                            ]),
+                            dcc.Tab(label="Density Plot", id='parallel-tab', value='parallel-tab', children=[
+                                dbc.Card([
+                                    dbc.CardHeader([
+                                        html.H3("Density Plot", className='card-title')
+                                    ]),
+                                    dbc.CardBody([
+                                        dcc.Graph(id='density-plot')
+                                    ]),
                                 ]),
                             ]),
                         ]),
-                    ]),
+                    
                 ]),
             ], style=dict(marginBottom=30)),
             dbc.Row([
