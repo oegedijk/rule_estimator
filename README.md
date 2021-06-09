@@ -39,7 +39,7 @@ from rule_estimator.datasets import titanic_X_y, titanic_labels
 
 
 X, y = titanic_X_y()
-RuleClassifierDashboard(X, y, val_size=0.25, labels=titanic_labels).run(port=8050)
+RuleClassifierDashboard(X, y, val_size=0.25, labels=titanic_labels).run()
 ```
 
 This will start a dashboard at `http://localhost:8050` that allows you to build
