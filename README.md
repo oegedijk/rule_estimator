@@ -1,7 +1,4 @@
 
-
-https://user-images.githubusercontent.com/27999937/127470807-8ace64f1-dbce-481d-aaeb-781d29d48e2b.mp4
-
 # rule_estimator
 
 Inspired by the awesome [human learn](https://github.com/koaning/human-learn) package, 
