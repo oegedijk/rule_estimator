@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='rule_estimator',
-    version='0.3.0',
+    version='0.4.0',
     package_dir={'rule_estimator': 'rule_estimator'},  # the one line where all the magic happens
     package_data={
         'rule_estimator': ['data/*'],
