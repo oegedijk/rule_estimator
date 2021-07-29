@@ -369,7 +369,7 @@ class RuleEstimator(BusinessRule):
         return description
 
     @staticmethod
-    def _sort_cols_by_histogram_overlap(X:pd.DataFrame, y:pd.Series, cols:List[str]=None, *, bins:int=25, agg:str='minimum'):
+    def _sort_cols_by_histogram_overlap(X:pd.DataFrame, y:pd.Series, cols:List[str]=None, *, bins:int=25, agg:str='minimum', reverse=False):
         def histogram_overlap(x, y, bins=10, agg='minimum', numeric=True):
             n_classes = len(np.unique(y))
             hist_overlap = 0 if agg == 'average' else 1
@@ -390,12 +390,14 @@ class RuleEstimator(BusinessRule):
 
         if cols is None:
             cols = X.columns
+        if X.empty:
+            return cols
 
         col_scores = []
         for col in cols:
             col_scores.append((col, histogram_overlap(X[col], y.values, bins=bins, agg=agg, numeric=is_numeric_dtype(X[col]))))
 
-        col_scores.sort(key=lambda x:x[1], reverse=True)
+        col_scores.sort(key=lambda x:x[1], reverse=reverse)
         return [col for col, score in col_scores]
     
           
@@ -414,6 +416,82 @@ class RuleClassifier(RuleEstimator):
         """
         return self.rules.score_rule(X, y, is_classifier=True)
     
+    def suggest_split(self, X:pd.DataFrame, y:Union[pd.Series, np.ndarray], col:str, 
+                    rule_id:int=None, after:bool=False)->Tuple:
+        """Suggest the best gini reducing split point for feature col.
+
+        For categorical features compares each category against all others. If
+        the selected category has the lower gini then true_lowest=True.
+        For numerical features finds use depth=1 DecisionTree to find the optimum
+        split point. If the col<cutoff has the lower gini than true_lowest=True.
+
+        Returns:
+            column, weighted gini after split, true_lowest
+
+
+        """
+
+        if rule_id is not None and after:
+            X, y = self.get_rule_leftover(rule_id, X, y)
+            if len(X) == 0:
+                raise ValueError(f"No samples after application of rule {rule_id}! Try setting after=False.")
+        elif rule_id is not None:
+            X, y = self.get_rule_input(rule_id, X, y)
+
+        def calculate_gini(y:pd.Series):
+            return 1 - (y.value_counts() / len(y)).apply(lambda y: y*y).sum()
+
+        def cat_gini(cat_col:pd.Series, y:pd.Series):
+            cats = cat_col.unique()
+            min_gini = 1
+            min_cat = cats[0]
+            true_lowest = True
+            if len(cats)==1:
+                return cats[0], calculate_gini(y), True
+            for cat in cats:
+                gini_df = y.groupby(cat_col==cat).agg([calculate_gini, "count"])
+                true_gini_lowest = gini_df.loc[True, 'calculate_gini'] < gini_df.loc[False, 'calculate_gini']
+                weighted_gini = (gini_df
+                                .assign(weighted_gini = lambda df: (df['count']/df['count'].sum()) * df['calculate_gini'])
+                                .weighted_gini.sum())
+                if weighted_gini < min_gini:
+                    min_gini = weighted_gini
+                    min_cat = cat
+                    true_lowest = true_gini_lowest
+            return min_cat, min_gini, true_lowest
+
+        def num_gini(num_col:pd.Series, y:pd.Series):
+            if y.std() == 0 or num_col.std() == 0 or np.isnan(num_col.std()) or np.isnan(y.std()):
+                # if only one value present, can't calculate a split
+                return num_col.mean(), 1.0, True
+            dt = DecisionTreeClassifier(max_depth=1, max_features=1.0, max_leaf_nodes=2).fit(num_col.to_frame(), y)
+            try:
+                n_tuple = dt.tree_.value.sum(axis=1).sum(axis=1)
+                n, n_true, n_other = n_tuple
+            except:
+                raise Exception(f"failed to unpack: {n_tuple}, {num_col}, {y}")
+            gini_before, gini_true, gini_other = dt.tree_.impurity
+            weighted_gini = (n_true * gini_true + n_other * gini_other) / n
+            cutoff = dt.tree_.threshold[0]
+            true_lowest = gini_true < gini_other
+            return cutoff, weighted_gini, true_lowest
+        
+        if is_numeric_dtype(X[col]):
+            return num_gini(X[col], y)
+        else:
+            return cat_gini(X[col], y)
+    
+    def _sort_cols_by_gini_reduction(self, X:pd.DataFrame, y:pd.Series, cols:List[str]=None, reverse=False)->List:
+        col_ginis = []
+        if cols is None:
+            cols = X.columns
+        if X.empty:
+            return cols
+        for col in cols:
+            col_ginis.append((col, *self.suggest_split(X, y, col)))
+        col_ginis.sort(key=lambda x:x[2], reverse=reverse)
+        return [col[0] for col in col_ginis]
+        
     def suggest_rule(self, rule_id:int, X:pd.DataFrame, y:Union[pd.Series, np.ndarray], 
                      kind='rule', after:bool=False)->str:
         """Suggests a new rule in the place of rule with rule_id. Uses the 

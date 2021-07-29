@@ -5,6 +5,7 @@ __all__ = [
     'GreaterEqualThanSplit', 
     'LesserThanSplit', 
     'LesserEqualThanSplit', 
+    'RangeSplit',
     'MultiRangeSplit',
     'MultiRangeAnySplit'
 ]
@@ -299,6 +300,17 @@ class LesserEqualThanSplit(BinarySplit):
     def __rulerepr__(self)->str:
         return f"Split if {self.col} <= {self.cutoff}"
 
+class RangeSplit(BinarySplit):
+    def __init__(self, col:str, min:float, max:float, 
+                if_true:BusinessRule=None, if_false:BusinessRule=None, 
+                default=None):
+        super().__init__()
+
+    def __rule__(self, X:pd.DataFrame):
+        return (X[self.col] >= self.min) & (X[self.col] <= self.max)
+
+    def __rulerepr__(self):
+        return f"Split if {self.min} <= {self.col} <= {self.max} "
 
 class MultiRangeSplit(BinarySplit):
     def __init__(self, range_dict, if_true:BusinessRule=None, if_false:BusinessRule=None, default=None):

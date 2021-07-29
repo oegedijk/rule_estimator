@@ -4,6 +4,9 @@ __all__ = [
     'plot_parallel_coordinates',
     'plot_density',
     'plot_cats_density',
+    'plot_confusion_matrix',
+    'get_metrics_df',
+    'get_coverage_df',
 ]
 
 from typing import List, Tuple, Union
@@ -16,6 +19,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 import plotly.figure_factory as ff
 
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, confusion_matrix
 
 empty_fig = go.Figure()
 empty_fig.update_layout(
@@ -200,13 +204,6 @@ def plot_model_graph(model, X:pd.DataFrame=None, y:pd.Series=None,
 
 def plot_label_pie(model, X:pd.DataFrame, y:np.ndarray, rule_id:int=None, after=False,
             size=120, margin=0, showlegend=False):
-    try:
-        import plotly.express as px
-        import plotly.graph_objs as go
-    except ImportError:
-        raise ImportError("Failed to load plotly, the plotting backend. "
-                            "You need to install it seperately with pip install plotly.")
-
     if rule_id is not None:
         X, y = model.get_rule_input(rule_id, X, y, after)
     
@@ -214,22 +211,26 @@ def plot_label_pie(model, X:pd.DataFrame, y:np.ndarray, rule_id:int=None, after=
         fig = go.Figure(go.Pie(values=[1.0], showlegend=False, marker=dict(colors=['grey'])))
     else:
         y_vc = y.value_counts().sort_index()
+
+        labels = [str(round(100*lab/len(y), 1))+'%' if lab==y_vc.max() else " " for lab in y_vc]
         fig = go.Figure(
                     go.Pie(
-                        labels=y_vc.index.astype(str), 
+                        labels=labels,
                         values=y_vc.values, 
                         marker=dict(colors=[px.colors.qualitative.Plotly[i] for i in y_vc.index]),
-                        sort=False
+                        sort=False,
+                        insidetextorientation='horizontal',
                     ))
     fig.update_layout(showlegend=showlegend, width=size, height=size)
     fig.update_layout(margin=dict(t=margin, b=margin, l=margin, r=margin))
-    fig.update_traces(textinfo='none', hoverinfo='none')
+    fig.update_layout(uniformtext_minsize=6, uniformtext_mode='hide')
+    fig.update_traces(textinfo='none', hoverinfo='percent', textposition='inside')
     return fig
         
 
 def plot_parallel_coordinates(model, X:pd.DataFrame, y:np.ndarray, rule_id:int=None, 
                             cols:List[str]=None, labels=None, after=False,
-                            ymin=None, ymax=None, sort_by_histogram_overlap=False):
+                            ymin=None, ymax=None):
     """generate parallel coordinates plot for data X, y. If rule_id is specified
     then only use data that reaches the rule with rule_id. You can select
     a sublist of columns by passing a list of cols.
@@ -262,11 +263,8 @@ def plot_parallel_coordinates(model, X:pd.DataFrame, y:np.ndarray, rule_id:int=N
     if rule_id is not None:
         X, y = model.get_rule_input(rule_id, X, y, after)
     
-    if cols is not None:
-        X = X[cols]
-
-    if sort_by_histogram_overlap:
-        X = X[model._sort_cols_by_histogram_overlap(X, y)]
+    if cols is None:
+        cols = X.columns.tolist()
 
     if X.empty:
         return empty_fig
@@ -285,7 +283,7 @@ def plot_parallel_coordinates(model, X:pd.DataFrame, y:np.ndarray, rule_id:int=N
         else:
             colorscale.append((b, colors[a-1]))
 
-    dimensions = [encode_col(X, col) for col in X.columns]
+    dimensions = [encode_col(X, col) for col in cols]
     dimensions.append(dict(range=[0, len(labels)-1],
                 tickvals = list(range(len(labels))), ticktext = labels,
                 label="y", values=y))
@@ -318,12 +316,25 @@ def plot_density(model, X, y, col, rule_id=0, after=False, labels=None, cutoff=N
     hist_data = [X[y==label][col] for label in y.unique()]
     labels = [labels[label] for label in y.unique()]
     colors = [px.colors.qualitative.Plotly[label] for label in y.unique()]
+    
+    show_curve = True if len(X) > 10 else False
 
-    fig = ff.create_distplot(hist_data, labels, show_rug=False, colors=colors, )
+    try:
+        fig = ff.create_distplot(hist_data, labels, show_rug=False, colors=colors, show_curve=show_curve)
+    except:
+        fig = ff.create_distplot(hist_data, labels, show_rug=False, colors=colors, show_curve=False)
+
     fig.update_layout(title_text=col, legend=dict(orientation="h"))   
-    if cutoff is not None:
+    if isinstance(cutoff, list):
+        fig.add_vrect(
+            x0=cutoff[0], x1=cutoff[1],
+            fillcolor="LightSkyBlue", opacity=0.8,
+            layer="below", line_width=0,
+        )
+    elif cutoff is not None:
         fig.add_vline(cutoff)
     return fig
+
 
 def plot_cats_density(model, X:pd.DataFrame, y:pd.Series, col:str, 
             rule_id:int=0, after:bool=False, labels:List[str]=None, 
@@ -365,3 +376,153 @@ def plot_cats_density(model, X:pd.DataFrame, y:pd.Series, col:str,
         bar.marker.line.color = 'darkmagenta'
         bar.marker.line.width = line_widths
     return fig
+
+
+def plot_confusion_matrix(model, X:pd.DataFrame, y:pd.Series,  rule_id:int=0, after:bool=False,  
+            rule_only=False, labels=None, percentage=True, normalize='all'):
+
+    if rule_id is not None:
+        X, y = model.get_rule_input(rule_id, X, y, after)
+
+    if rule_only:
+        rule = model.get_rule(rule_id)
+        y_pred = rule.predict(X)
+    else:
+        y_pred = model.predict(X)
+        
+    if (~np.isnan(y_pred)).sum() == 0:
+        cm = np.array([[0, 0], [0,0]])
+    else:
+        cm = confusion_matrix(y[~np.isnan(y_pred)], y_pred[~np.isnan(y_pred)])
+    
+    if normalize not in ['observed', 'pred', 'all']:
+        raise ValueError("Error! parameters normalize must be one of {'observed', 'pred', 'all'} !")
+
+    with np.errstate(all='ignore'):
+        if normalize == 'all':
+            cm_normalized = np.round(100*cm / cm.sum(), 1)
+        elif normalize == 'observed':
+            cm_normalized = np.round(100*cm / cm.sum(axis=1, keepdims=True), 1)
+        elif normalize == 'pred':
+            cm_normalized = np.round(100*cm / cm.sum(axis=0, keepdims=True), 1)
+         
+        cm_normalized = np.nan_to_num(cm_normalized)
+
+    if labels is None:
+        labels = [str(i) for i in range(cm.shape[0])] 
+
+    zmax = 130 # to keep the text readable at 100% accuracy
+        
+    data=[go.Heatmap(
+        z=cm_normalized,
+        x=[f" {lab}" for lab in labels],
+        y=[f" {lab}" for lab in labels],
+        hoverinfo="skip",
+        zmin=0, zmax=zmax, colorscale='Blues',
+        showscale=False,
+    )]
+   
+    layout = go.Layout(
+            title="Confusion Matrix",
+            xaxis=dict(title='predicted',
+                       constrain="domain",
+                       tickmode = 'array',
+                       showgrid = False,
+                       tickvals = [f" {lab}" for lab in labels],
+                       ticktext = [f" {lab}" for lab in labels]),
+            yaxis=dict(title=dict(text='observed',standoff=20),
+                       autorange="reversed", 
+                       side='left',
+                       scaleanchor='x', 
+                       scaleratio=1,
+                       showgrid = False,
+                       tickmode = 'array',
+                       tickvals = [f" {lab}" for lab in labels],
+                       ticktext = [f" {lab}" for lab in labels]),
+            plot_bgcolor = '#fff',
+        )
+    fig = go.Figure(data, layout)
+    annotations = []
+    for x in range(cm.shape[0]):
+        for y in range(cm.shape[1]):
+            top_text = f"{cm_normalized[x, y]}%" if percentage else f"{cm[x, y]}"
+            bottom_text = f"{cm_normalized[x, y]}%" if not percentage else f"{cm[x, y]}" 
+            annotations.extend([
+                go.layout.Annotation(
+                    x=fig.data[0].x[y], 
+                    y=fig.data[0].y[x], 
+                    text=top_text, 
+                    showarrow=False,
+                    font=dict(size=20)
+                ),
+                go.layout.Annotation(
+                    x=fig.data[0].x[y], 
+                    y=fig.data[0].y[x], 
+                    text=f" <br> <br> <br>({bottom_text})", 
+                    showarrow=False,
+                    font=dict(size=12)
+                )]
+            )
+    longest_label = max([len(label) for label in labels])    
+    fig.update_layout(annotations=annotations)
+    fig.update_layout(margin=dict(t=40, b=40, l=longest_label*7, r=40))
+    return fig
+
+
+def get_coverage_df(model, X:pd.DataFrame, y:pd.Series,  rule_id:int=0, after:bool=False,  
+            rule_only=False, labels=None, percentage=True, normalize='all'):
+
+    if rule_id is not None:
+        X, y = model.get_rule_input(rule_id, X, y, after)
+
+    if rule_only:
+        rule = model.get_rule(rule_id)
+        y_pred = rule.predict(X)
+    else:
+        y_pred = model.predict(X)
+       
+    y_true, y_pred = y[~np.isnan(y_pred)], y_pred[~np.isnan(y_pred)]
+    
+    coverage_dict = dict(
+        n_input = len(X),
+        predicted = len(y_pred),
+        predicted_nan = len(X)-len(y_pred),
+        coverage = round(len(y_pred)/len(X), 3),
+    )
+    coverage_df = (pd.DataFrame(coverage_dict, index=["count"])
+                              .T.rename_axis(index="coverage").reset_index())
+    return coverage_df
+
+
+def get_metrics_df(model, X:pd.DataFrame, y:pd.Series,  rule_id:int=0, after:bool=False,  
+            rule_only=False, labels=None, percentage=True, normalize='all'):
+
+    if rule_id is not None:
+        X, y = model.get_rule_input(rule_id, X, y, after)
+
+    if rule_only:
+        rule = model.get_rule(rule_id)
+        y_pred = rule.predict(X)
+    else:
+        y_pred = model.predict(X)
+       
+    y_true, y_pred = y[~np.isnan(y_pred)], y_pred[~np.isnan(y_pred)]
+    n_input = len(X)
+    predicted = len(y_pred)
+    not_predicted = len(X)-predicted
+    
+    
+    if len(y_true) > 0:
+        metrics_dict = {
+            'accuracy' : accuracy_score(y_true, y_pred),
+            'precision' : precision_score(y_true, y_pred, zero_division=0),
+            'recall' : recall_score(y_true, y_pred),
+            'f1' : f1_score(y_true, y_pred),
+        }
+    else:
+        metrics_dict = dict(accuracy=np.nan, precision=np.nan, recall=np.nan, f1=np.nan)
+    metrics_df = (pd.DataFrame(metrics_dict, index=["score"])
+                              .T.rename_axis(index="metric").reset_index()
+                              .round(3))
+    
+    return metrics_df

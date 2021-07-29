@@ -2,10 +2,22 @@
 
 Inspired by the awesome [human learn](https://github.com/koaning/human-learn) package, 
 this package makes it easy to build scikit-learn compatible business-rule estimators. 
-These estimators can be stored to a human readable `.yaml` file, 
-edited and then reloaded from such a `.yaml` file. 
+These estimators can be stored to a human readable `.yaml` file, edited and then 
+reloaded from such a `.yaml` file. 
 
-You can also start a dashboard to help building your rule-based model.
+For classifiers you can easily devise, validate and export your business rules using the included dashboard:
+
+```python
+from rule_estimator import RuleClassifierDashboard
+from rule_estimator.datasets import titanic_X_y
+X, y = titanic_X_y()
+
+db = RuleClassifierDashboard(X, y, val_size=0.25, labels=['Not survived', 'Survived'])
+db.run()
+```
+
+![dashboard_demo.mp4](dashboard_demo.mp4)
+
 
 This estimator can be integrated into a scikit-learn `Pipeline`, including data
 preprocessing steps. You can add a `final_estimator` for all cases where there is no applicable business rule, in which case they will be processed by this `final_estimator`.
@@ -37,13 +49,12 @@ The dashboard only works with classification problems for now. You can start a
 from rule_estimator import *
 from rule_estimator.datasets import titanic_X_y, titanic_labels
 
-
 X, y = titanic_X_y()
 RuleClassifierDashboard(X, y, val_size=0.25, labels=titanic_labels).run()
 ```
 
 This will start a dashboard at `http://localhost:8050` that allows you to build
-your decision rules using a Parallel Plot. You can visualize the tree structure,
+your decision tree by generating splits and prediction rules. You can visualize the tree structure,
 append, replace or remove rules, export to pickle or yaml, compare the performance
 of various rules and more. 
 
@@ -73,7 +84,7 @@ model = RuleClassifier(
                     GreaterThan("petal width (cm)", 1.8, prediction=2),
                 ], default=1 # if no rule applies, assign prediction=1
             ),
-    ), 
+    )
 ```
 
 Let's see how the rules performed:
@@ -102,13 +113,13 @@ print(model.describe())
 
 ```
 RuleClassifier
-  0: LesserThanSplit: petal length (cm) < 1.91
-    1: PredictionRule: Always predict 0
-    2: CaseWhen (default=1)
-       3: LesserThan: If petal length (cm) < 4.5 then predict 1
-       4: GreaterThan: If petal length (cm) > 5.1 then predict 2
-       5: LesserThan: If petal width (cm) < 1.4 then predict 1
-       6: GreaterThan: If petal width (cm) > 1.8 then predict 2
+  0: Split if petal length (cm) < 1.91
+  ↳y 1: All remaining predict 0
+  ↳n 2: CaseWhen (default=1)
+     ↳ 3: If petal length (cm) < 4.5 then predict 1
+     ↳ 4: If petal length (cm) > 5.1 then predict 2
+     ↳ 5: If petal width (cm) < 1.4 then predict 1
+     ↳ 6: If petal width (cm) > 1.8 then predict 2
 ```
 
 If you have `plotly` installed, you can also call `model.plot()` to get
@@ -128,75 +139,71 @@ print(model.to_yaml())
 
 ```yaml
 # RuleClassifier
-#   0: LesserThanSplit: petal length (cm) < 1.91
-#     1: PredictionRule: Always predict 0
-#     2: CaseWhen (default=1)
-#        3: LesserThan: If petal length (cm) < 4.5 then predict 1
-#        4: GreaterThan: If petal length (cm) > 5.1 then predict 2
-#        5: LesserThan: If petal width (cm) < 1.4 then predict 1
-#        6: GreaterThan: If petal width (cm) > 1.8 then predict 2
+#   0: Split if petal length (cm) < 1.91
+#   ↳y 1: All remaining predict 0
+#   ↳n 2: CaseWhen (default=1)
+#      ↳ 3: If petal length (cm) < 4.5 then predict 1
+#      ↳ 4: If petal length (cm) > 5.1 then predict 2
+#      ↳ 5: If petal width (cm) < 1.4 then predict 1
+#      ↳ 6: If petal width (cm) > 1.8 then predict 2
 __businessrule__:
-  module: rule_estimator.core
+  module: rule_estimator.estimators
   name: RuleClassifier
   description: RuleClassifier
   params:
     rules:
       __businessrule__:
-        module: rule_estimator.business_rules
+        module: rule_estimator.splits
         name: LesserThanSplit
-        description: 'LesserThanSplit: petal length (cm) < 1.91'
+        description: Split if petal length (cm) < 1.91
         params:
           col: petal length (cm)
           cutoff: 1.91
           if_true:
             __businessrule__:
-              module: rule_estimator.business_rules
+              module: rule_estimator.rules
               name: PredictionRule
-              description: 'PredictionRule: Always predict 0'
+              description: All remaining predict 0
               params:
                 prediction: 0
           if_false:
             __businessrule__:
-              module: rule_estimator.core
+              module: rule_estimator.rules
               name: CaseWhen
               description: CaseWhen
               params:
                 rules:
                 - __businessrule__:
-                    module: rule_estimator.business_rules
+                    module: rule_estimator.rules
                     name: LesserThan
-                    description: 'LesserThan: If petal length (cm) < 4.5 then predict
-                      1'
+                    description: If petal length (cm) < 4.5 then predict 1
                     params:
                       col: petal length (cm)
                       cutoff: 4.5
                       prediction: 1
                       default: null
                 - __businessrule__:
-                    module: rule_estimator.business_rules
+                    module: rule_estimator.rules
                     name: GreaterThan
-                    description: 'GreaterThan: If petal length (cm) > 5.1 then predict
-                      2'
+                    description: If petal length (cm) > 5.1 then predict 2
                     params:
                       col: petal length (cm)
                       cutoff: 5.1
                       prediction: 2
                       default: null
                 - __businessrule__:
-                    module: rule_estimator.business_rules
+                    module: rule_estimator.rules
                     name: LesserThan
-                    description: 'LesserThan: If petal width (cm) < 1.4 then predict
-                      1'
+                    description: If petal width (cm) < 1.4 then predict 1
                     params:
                       col: petal width (cm)
                       cutoff: 1.4
                       prediction: 1
                       default: null
                 - __businessrule__:
-                    module: rule_estimator.business_rules
+                    module: rule_estimator.rules
                     name: GreaterThan
-                    description: 'GreaterThan: If petal width (cm) > 1.8 then predict
-                      2'
+                    description: If petal width (cm) > 1.8 then predict 2
                     params:
                       col: petal width (cm)
                       cutoff: 1.8
@@ -266,6 +273,15 @@ on the leftover data of a rule (`after=True`).
 model.suggest_rule(6, X, y)
 model.suggest_rule(6, X, y, kind='node', after=True)
 ```
+
+You can also get a split suggestion for a specific column:
+
+```python
+cutoff, gini_reduction, lesserthan_has_lowest_gini = model.suggest_split(X, y, 'petal width (cm)', 6)
+```
+
+For categorical features, the optimal single category to split on is suggested. 
+
 
 ## Retrieving and setting rule parameters
 
@@ -353,14 +369,21 @@ Currently the following BusinessRules are defined in the library:
 -  `GreaterEqualThan`: if `col` is greater or equal than `cutoff` assign `prediction`
 -  `LesserThan`: if `col` if lesser then `cutoff` assign `prediction`
 -  `LesserEqualThan`: if `col` if lesser or equal than `cutoff` assign `prediction`
+-  `IsInRule`: for categorical features if `col` is in list of `cat`s assign `prediction`
+-  `RangeRule` if `col` is between `min` and `max` assign `prediction`
+-  `MultiRange` if all the conditions in `range_dict` are satisfied assign `prediction`
+-  `MultiRangeAny` if any of the conditions in `range_dict` are satisfied assign `predictions`
+
 
 If you do not pass a `default` parameter to these rules, then any rows not covered
-will get a `np.nan` prediction. 
+will get a `np.nan` prediction. Alternatively you can append a `PredictionRule` using 
+a `CaseWhen` block in order to ensure that there is always a prediction. 
+(this is what the dashboard does).
 
 `CaseWhen` processes a list of `BusinessRules` one-by-one, if a rule applies
     it assigns the prediction, then passes the remaining rows to the next Rule, etc.
     
-There are also four `BinarySplits` defined. These evaluate a condition,
+There are also `BinarySplits` defined. These evaluate a condition,
 and if the condition holds pass the prediction off to `BusinessRule` `if_true`,
 and otherwise to `BusinessRule` `if_false`:
 
@@ -368,7 +391,10 @@ and otherwise to `BusinessRule` `if_false`:
 -  `GreaterEqualThanSplit`
 -  `LesserThanSplit`
 -  `LesserEqualThanSplit`
-
+-  `IsInSplit`
+-  `RangeSplit`
+-  `MultiRangeSplit`
+-  `MultiRangeAnySplit` 
 # Defining your own BusinessRules
 
 It is easy to define and add your own BusinessRules, the basic structure is:
@@ -417,7 +443,7 @@ model.describe()
 Here's the output:
 ```
 RuleClassifier
-  0: LesserThanSplit: petal length (cm) < 1.91
-    1: PredictionRule: Always predict 0
-    2: VersicolorRule: if petal length < 4.6 or petal width < 1.5 predict 1 (default=2)
+  0: Split if petal length (cm) < 1.91
+  ↳y 1: All remaining predict 0
+  ↳n 2: VersicolorRule: if petal length < 4.6 or petal width < 1.5 predict 1 (default=2)
 ```

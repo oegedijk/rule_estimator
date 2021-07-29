@@ -22,6 +22,89 @@ from .rules import *
 from .estimators import RuleClassifier
 from .plotting import *
 
+instructions_markdown = """
+
+This dashboard allows you to create a set of business rules that act as a classifier:
+predicting an outcome label based on input features. This classifier can then be used
+just like any other machine learning classifier from the python-based scikit-learn machine 
+learning library.
+
+### Adding new rules
+
+New rules are either based on a **single feature** or **multiple features**. Single feature
+rules are either based on a *cutoff* (for numerical features), or a *list of categories*
+(for categorical features). Multi feature rules can be a combination of numerical
+feature ranges and categorical feature lists. 
+
+You can add three kinds of rules: "Split", "Predict Selected" and "Predict All".
+
+A **Split** divides the data points in two branches: all input data for which the conditions holds
+go left, and all other input data goes right. You can then add additional rules
+both to the left branch and to the right branch. Once you have finished with one
+branch you can select the other branch by clicking in the model graph.
+
+**Predict Selected** applies a prediction label to all incoming data for which the 
+condition holds, i.e. the data that is selected by this rule. Data for which the condition 
+does not hold (i.e. unselected data) goes onlabeled (or rather: predicted nan).
+Unlabeled data will be passed on the next rule.
+
+**Predict All** unconditionally applies a prediction label to all incoming data.
+After this rule there will be no remaining unlabeled data in this branch. You can
+add a *Predict All* rule at the end of every branch to make sure that every input
+receives a label.
+
+The dashboard offers "suggest" buttons that helps you with selecting appropriate rules.
+The feature suggest button will select a good feature for a new rule (based on maximum gini reduction, 
+similar to DecisionTree algorithms). The cutoff suggest button will suggest a good
+cutoff (again to maximize gini reduction). Once you have added a rule, automatically
+the best next feature and cutoff for the remaining data will be selected. 
+
+When you append a rule, the model automatically generates a `CaseWhen` block if needed. A CaseWhen
+block evaluates a list of rules one by one, applying predictions if the rule condition holds
+and otherwise passing the data to the next rule.
+
+By default the dashboard will append a new rule to the currently selected rule (creating 
+a new CaseWhen block if needed). Thus when you select a rule, the plots will display only the 
+data points that have not been labeled after this rule. You can also select to replace the current rule. In that
+case the dashboard will display all the data coming into the the current rule.
+
+### Inspecting the model
+
+The decision rules together form a "model" that takes input data and outputs predicted
+labels. You can inspect the model in the "Model" section. You can view a Graphical
+representation of the model or a textual Description.
+
+Once you are happy with your model you can export a scikit-learn compatible model as a 
+python pickle file from the navbar "save as..." menu. You can also export a `model.yaml` file 
+that you can use to instantiate the model from python with `RuleClassifier.from_yaml("model.yaml")`. 
+Finally you can also copy-paste the python code that will generate the model. Using the upload
+button you can load `.pkl` or `.yaml` files that you have previously exported. 
+
+You can delete individual rules or reset the entire model, but these actions cannot be undone, so be careful.
+
+### Performance
+
+The dashboard offers a few basic metrics for measuring the performance of the model.
+
+A confusion matrix shows the absolute and relative number of True Negatives, True Positives, False Negatives
+and False Positives. 
+
+Accuracy (number of correctly predicted labels), 
+precision (number of positively labeled predictions that were in fact positive), 
+recall (number of positively labeled data points that were in fact labeled positive) 
+as well as the f1-score (combination of predicion and recall) get calculated.
+
+Coverage is defined as the fraction of input data that receive a label.
+
+### Training data vs Validation data
+
+It is good practice to split your data into a training set and a validation set. 
+You construct your rules using the training set, and then evaluate them using the
+validation set. There is a toggle in the navbar to switch between the two data sets.
+
+Ideally you would keep a test set apart completely which you only use to evaluate
+your final model.
+"""
 
 class RuleClassifierDashboard:
     
@@ -46,10 +129,12 @@ class RuleClassifierDashboard:
 
         self.cats = [col for col in X.columns if not is_numeric_dtype(X[col])]
         self.non_cats = [col for col in X.columns if is_numeric_dtype(X[col])]
+        self.initial_col = self.model._sort_cols_by_gini_reduction(X, y)[0]
             
         self.port = port
         
         self.app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+        self.app.title = "RuleClassifier"
         self.app.layout = self.layout()
         self.register_callbacks(self.app)
 
@@ -85,6 +170,17 @@ class RuleClassifierDashboard:
         else:
             return [process_range(range_list, sig, ticktext) for range_list in ranges]
 
+    @staticmethod
+    def _get_stepsize(min, max, steps=500, sig=3):
+        """returns step size range (min, max) into steps, rounding to sig significant digits"""
+        return round((max-min)/steps, sig-int(floor(log10(abs((max-min)/steps))))-1) 
+
+    @staticmethod
+    def _round_cutoff(cutoff, min, max, steps=500, sig=3):
+        """returns cutoff for dividing div into steps, rounding to sig significant digits"""
+        return round(cutoff, sig-int(floor(log10(abs((max-min)/steps))))-1)
+
+    
     def _get_range_dict_from_parallel_plot(self, fig):
         """
         Extracts a range_dict from a go.Parcoords() figure.
@@ -126,10 +222,10 @@ class RuleClassifierDashboard:
     def _get_model(self, json_model=None):
         """Returns a model instance from a json model definition. 
         If the json_model is still empty (=None) then returns self.model"""
-        if json_model is not None:
+        if json_model:
             return RuleClassifier.from_json(json_model)
         else:
-            return self.model
+            return RuleClassifier.from_json(self.model.to_json())
 
     def _get_X_y(self, train_or_val='train'):
         """Returns either the full training set (X,y ) or the full validation set (X, y)"""
@@ -143,7 +239,7 @@ class RuleClassifierDashboard:
         (after=False) by checking the append_or_replace toggle"""
         return (append_or_replace == 'append')
 
-    def _get_model_X_y(self, model, train_or_val='train', rule_id=0, after=False):
+    def _get_model_X_y(self, model=None, train_or_val='train', rule_id=0, after=False):
         """returns a (model, X, y) tuple
 
         Args:
@@ -154,16 +250,20 @@ class RuleClassifierDashboard:
                 in {'append', 'replace}, in which case it will get inferred.
 
         """
-        if not isinstance(model, RuleClassifier):
-            model = self._get_model(model)            
+        if model is None or not isinstance(model, RuleClassifier):
+            model = self._get_model(model)         
 
         X, y = self._get_X_y(train_or_val)
-        if not isinstance(after, bool) and after in {'append', 'replace'}:
-            after = self._infer_after(after)
-        else:
-            raise ValueError(f"After should either be a bool or in 'append', 'replace',"
-                             f" but you passed {after}!")
-        X, y = model.get_rule_input(rule_id, self.X, self.y, after)
+
+        if not isinstance(after, bool):
+            if after in {'append', 'replace'}:
+                after = self._infer_after(after)
+            else:
+                raise ValueError(f"After should either be a bool or in 'append', 'replace',"
+                                f" but you passed {after}!")
+        if rule_id == 0 and not after:
+            return model, X, y
+        X, y = model.get_rule_input(rule_id, X, y, after)
         return model, X, y
 
     def _change_model(self, model, rule_id, new_rule, append_or_replace='append'):
@@ -189,6 +289,8 @@ class RuleClassifierDashboard:
         return dbc.Container([
             dbc.NavbarSimple(
                 children=[
+                    dbc.NavItem(dbc.NavLink(children=[html.Div("Instructions")], id="instructions-open-button", n_clicks=0)),
+                    dbc.NavItem(dbc.NavLink(children=[html.Div("Upload")], id="upload-button", n_clicks=0)),
                     dbc.DropdownMenu(
                         children=[
                             dbc.DropdownMenuItem("as .yaml", id='download-yaml-button', n_clicks=None),
@@ -200,6 +302,18 @@ class RuleClassifierDashboard:
                         in_navbar=True,
                         label="Save model",
                     ),
+                    html.Div([
+                        dbc.Select(
+                            options=[{'label':'Training data', 'value':'train'},
+                                    {'label':'Validation data', 'value':'val'}],
+                            value='train',
+                            id='train-or-val'
+                        ),
+                        dbc.Tooltip("Display values using the training data set or the "
+                            "validation data set. Use the training set to build your rules, "
+                            "and the validation to measure performance and find rules that "
+                            "do not generalize well.", target='train-or-val'),
+                    ], style=dict(display="none") if self.X_val is None else dict()),
                 ],
                 brand="RuleClassifierDashboard",
                 brand_href="https://github.com/oegedijk/rule_estimator/",
@@ -207,7 +321,21 @@ class RuleClassifierDashboard:
                 dark=True,
             ),
 
-            # helper storages as a workaround dash limitation that output can
+            dbc.Modal(
+                [
+                    dbc.ModalHeader("Dashboard Intructions"),
+                    dbc.ModalBody([dcc.Markdown(instructions_markdown)]),
+                    dbc.ModalFooter(
+                        dbc.Button("Close", id="instructions-close-button", className="ml-auto", n_clicks=0)
+                    ),
+
+                ],
+                id="instructions-modal",
+                is_open=True,
+                size="xl",
+            ),
+
+            # helper storages as a workaround for dash limitation that each output can
             # only be used in a single callback
             dcc.Store(id='updated-rule-id'),
             dcc.Store(id='parallel-updated-rule-id'),
@@ -222,319 +350,432 @@ class RuleClassifierDashboard:
             dcc.Store(id='density-cats-updated-model'),
             dcc.Store(id='removerule-updated-model'),
             dcc.Store(id='resetmodel-updated-model'),
+            dcc.Store(id='uploaded-model'),
 
             dcc.Store(id='update-model-performance'),
             dcc.Store(id='update-model-graph'),
-            
-            dbc.Row([
-                dbc.Col([
-                    dbc.Card([
-                        dbc.CardBody([
-                            dbc.Row([
-                                dbc.Col([
-                                    dbc.FormGroup([
-                                        dbc.Label("Selected rule:", id='selected-rule-id-label', 
-                                                    html_for='selected-rule-id', className="mr-2"),
-                                        dcc.Dropdown(id='selected-rule-id', options=[
-                                            {'label':str(ruleid), 'value':int(ruleid)} 
-                                                for ruleid in range(self.model._get_max_rule_id()+1)],
-                                                value=0, clearable=False, style=dict(width=200)),
-                                        dbc.Tooltip("You can either select a rule id here or by clicking in the model graph. "
-                                                    "The parallel plot will show either all the unlabeled data after this rule "
-                                                    "(when you select 'append'), or all the unlabeled data coming into this rule "
-                                                    "(when you select 'replace')", target='selected-rule-id-label'),
-                                    ], row=True, className="mr-3"),
-                                ]),
-                                dbc.Col([
-                                    dbc.FormGroup([
-                                        dbc.Select(
-                                            options=[{'label':'Append rule after (show data out)', 'value':'append'},
-                                                    {'label':'Replace rule (show data in)', 'value':'replace'}],
-                                            value='append',
-                                            id='append-or-replace'),
-                                        dbc.Tooltip("When you select to 'append' a rule, the Parallel Plot will show "
-                                                    "all the data that is still unlabeled after the selected rule. "
-                                                    "When you add a rule it will appended to a CaseWhen block. "   
-                                                    "When you select 'replace' the Parallel Plot will display the data going into "
-                                                    "this rule. When you add a rule, it will replace the existing rule.",
-                                                        target='append-or-replace'),
-                                    ], className="mr-3"),
-                                ]),
-                                html.Div([
-                                    dbc.Col([
-                                        dbc.FormGroup([
-                                            dbc.Select(
-                                                    options=[{'label':'Train data', 'value':'train'},
-                                                            {'label':'Validation data', 'value':'val'}],
-                                                    value='train',
-                                                    id='train-or-val'),
-                                            ], className="mr-3"),
-                                    ]),
-                                ], style=dict(display="none") if self.X_val is None else dict()),     
-                            ], form=True),
-                        ]),
-                    ], style=dict(marginBottom=10, marginTop=10)),
-                    dcc.Tabs(id='rule-tabs', value='parallel-tab', 
-                        children=[
-                            dcc.Tab(label="Multi Feature Rules", id='parallel-tab', value='parallel-tab', children=[
-                                dbc.Card([
-                                    dbc.CardHeader([
-                                        html.H3("Parallel Feature Plot", className="card-title"),
-                                        html.H6("Select (multiple) feature ranges to generate a split or add a prediction rule", className="card-subtitle"),   
-                                    ]),
-                                    dbc.CardBody([
-                                        dbc.Row([
-                                            dbc.Col([
-                                                dbc.FormGroup([
-                                                        dbc.Label("Features", html_for='parallel-cols', id='parallel-cols-label'),
-                                                        dcc.Dropdown(id='parallel-cols', multi=True,
-                                                            options=[{'label':col, 'value':col} 
-                                                                    for col in self.X.columns],
-                                                            value = self.X.columns.tolist()),
-                                                        dbc.Tooltip("Select the features to be displayed in the Parallel Plot", 
-                                                                target='parallel-cols-label'),
-                                                    ]),
-                                            ], md=10),
-                                            dbc.Col([
-                                                dbc.FormGroup([
-                                                    dbc.Label("Sort features", html_for='sort-by-overlap'),
-                                                    dbc.Checklist(
-                                                        options=[{"label":  "sort", "value": True}],
-                                                        value=[True],
-                                                        id='sort-by-overlap',
-                                                        inline=True,
-                                                        switch=True,
-                                                        style=dict(height=40, width=100, horizontalAlign = 'right'),
-                                                    ),
-                                                    dbc.Tooltip("Sort the features in the plot from least histogram overlap "
-                                                                "(feature distributions look the most different for different "
-                                                                "values of y) on the right, to highest histogram overlap on the left.", 
-                                                                target='sort-by-overlap'),
-                                                ])
-                                            ], md=2),
-                                        ], form=True),
-                                        dbc.Row([
-                                            dbc.Col([
-                                                dcc.Graph(id='parallel-plot'),
-                                                html.Div(id='parallel-description'), 
-                                            ])
-                                        ]),
-                                        dbc.Row([
-                                            dbc.Col([
-                                                html.Hr()
-                                            ]),
-                                        ]),
-                                        dbc.Row([
-                                            dbc.Col([
-                                                dbc.FormGroup([
-                                                    dbc.Button("Split", id='parallel-split-button', 
-                                                                    color="primary", size="m", style=dict(width=400)),
-                                                    dbc.Tooltip("Make a split using the selection in the Parallel Plot. "
-                                                            "Data in the selected ranges goes left (true), all other data "
-                                                            "goes right (false).", target='parallel-split-button'),
-                                                ]),
-                                            ], md=6),
-                                            dbc.Col([
-                                                dbc.FormGroup([
-                                                    html.Div([
-                                                        dbc.Select(id='parallel-prediction', options=[
-                                                            {'label':f"{y}. {label}", 'value':str(y)} for y, label in enumerate(self.labels)],
-                                                            value=str(len(self.labels)-1), 
-                                                            bs_size="sm"),
-                                                        dbc.Tooltip("The prediction to be applied. Either to all data ('Predict All'), "
-                                                                    "or to the selected data ('Predict Selected'). Will get automatically "
-                                                                    "Inferred from the selected data in the Parallel Plot.", target='parallel-prediction'),
-                                                        dbc.Button("Predict Selected", id='parallel-predict-button', 
-                                                                color="primary", size="m", style=dict(marginLeft=10, width=400)),
-                                                        dbc.Tooltip("Apply the prediction to all data within the ranges "
-                                                                    "selected in the Parallel Plot.", target='parallel-predict-button'),
-                                                        dbc.Button("Predict All", id='parallel-predict-all-button', 
-                                                                    color="primary", size="m", style=dict(marginLeft=10, width=400)),
-                                                        dbc.Tooltip("Add a PredictionRule: Apply a single uniform prediction to all the "
-                                                                    "data without distinction.", target='parallel-predict-all-button'),
-                                                    ], style = {'width': '100%', 'display': 'flex', 'align-items': 'right', 'justify-content': 'right'})     
-                                                ], row=True),
-                                            ], md=6),
-                                        ], form=True),
-                                    ]),
-                                    dbc.CardFooter([
-                                        dbc.Row([
-                                            dbc.Col([
-                                                dbc.Label("All data", id='parallel-pie-all-label'),
-                                                dbc.Tooltip("Label distribution for all observations", target='parallel-pie-all-label'),
-                                                dcc.Graph(id='parallel-pie-all', config=dict(modeBarButtons=[[]], displaylogo=False)),  
-                                            ]),
-                                            dbc.Col([
-                                                dbc.Label("This data", id='parallel-pie-data-label'),
-                                                dbc.Tooltip("Label distribution for all observations in the parallel plot above.", 
-                                                        target='parallel-pie-data-label'),
-                                                dcc.Graph(id='parallel-pie-data', config=dict(modeBarButtons=[[]], displaylogo=False)),   
-                                            ]),
-                                            dbc.Col([
-                                                dbc.Label("Selected", id='parallel-pie-selection-label'),
-                                                dbc.Tooltip("Label distribution for all the feature ranges selected above", 
-                                                        target='pie-parallel-selection-label'),
-                                                dcc.Graph(id='parallel-pie-selection', config=dict(modeBarButtons=[[]], displaylogo=False)),   
-                                            ]),
-                                            dbc.Col([
-                                                dbc.Label("Not selected", id='parallel-pie-non-selection-label'),
-                                                dbc.Tooltip("Label distribution for all the feature ranges not selected above", 
-                                                        target='parallel-pie-non-selection-label'),
-                                                dcc.Graph(id='parallel-pie-non-selection', config=dict(modeBarButtons=[[]], displaylogo=False)),
-                                            ]),
-                                        ]),
-                                    ]),
-                                ]),
+            dcc.Store(id='added-num-density-rule'),
+            dcc.Store(id='added-cats-density-rule'),
 
-                            ]),
-                            dcc.Tab(label="Single Feature Rules", id='density-tab', value='density-tab', children=[
-                                dbc.Card([
-                                    dbc.CardHeader([
-                                        html.H3("Density Plot", className='card-title')
-                                    ]),
-                                    dbc.CardBody([
-                                        dbc.Row([
-                                            dbc.Col([
-                                                dbc.Label("Column"),
-                                                dcc.Dropdown(id='density-col', 
-                                                            options=[{'label':col, 'value':col} for col in self.X.columns], 
-                                                            value=self.X.columns.tolist()[0],
-                                                            clearable=False),
-                                            ]),
-                                        ]),
-                                        html.Div([
-                                            dbc.Row([
-                                                dbc.Col([
-                                                    dcc.Graph(id='density-num-plot'),
-                                                    
-                                                    
-                                                ], md=10),
-                                                dbc.Col([
-                                                    dbc.Label("All"),
-                                                    dcc.Graph(id='density-num-pie'),
-                                                    dbc.Label("Selected"),
-                                                    dcc.Graph(id='density-num-pie-include'),
-                                                    dbc.Label("Not Selected"),
-                                                    dcc.Graph(id='density-num-pie-exclude'),
-                                                ], md=2),
-                                            ]),
-                                            dbc.Row([
-                                                dbc.Col([
-                                                    dcc.Slider(id='density-num-cutoff', min=0, max=10,
-                                                        tooltip=dict(always_visible=True)),
-                                                ], md=10),
-                                                dbc.Col([
-                                                    dbc.Select(
-                                                            options=[{'label':'Select lesser than', 'value':'lesser_than'},
-                                                                        {'label':'Select greater than', 'value':'greater_than'}],
-                                                            value='lesser_than',
-                                                            id='density-num-ruletype',
-                                                            #style=dict(height='20px'),
-                                                            bs_size="sm",
-                                                            ),
-                                                ])
-                                            ], form=True),
-                                            dbc.Row([
-                                                dbc.Col([
-                                                    html.Hr()
-                                                ])
-                                            ]),
-                                            dbc.Row([
-                                                dbc.Col([
-                                                    dbc.FormGroup([
-                                                         dbc.Button("Split", id='density-num-split-button', 
-                                                                color="primary", size="m", style=dict(width=400)),
-                                                    ]),
-                                                ], md=6),
-                                                dbc.Col([
-                                                    dbc.FormGroup([
-                                                        html.Div([
-                                                            dbc.Select(id='density-num-prediction', options=[
-                                                                    {'label':f"{y}. {label}", 'value':str(y)} for y, label in enumerate(self.labels)],
-                                                                        value=str(len(self.labels)-1), bs_size="sm"),
-                                                            dbc.Button("Predict Selected", id='density-num-predict-button', color="primary",
-                                                                        size="m", style=dict(marginLeft=10, width=400)),
-                                                            dbc.Button("Predict All", id='density-num-predict-all-button', color="primary",
-                                                                        size="m", style=dict(marginLeft=10, width=400)),
-                                                        ], style={'width': '100%', 'display': 'flex', 'align-items': 'right', 'justify-content': 'right'}),
-                                                    ], row=True),
-                                                ], md=6),
-                                            ], form=True),
-                                        ], id='density-num-div'),
-                                        html.Div([
-                                            dbc.Row([
-                                                dbc.Col([
-                                                    dcc.Graph(id='density-cats-plot'),
-                                                    dbc.Row([
-                                                        dbc.Col([
-                                                            dbc.FormGroup([
-                                                                dbc.Label("Categories to include:", html_for='density-cats-cats'),
-                                                                dcc.Dropdown(id='density-cats-cats', value=[], multi=True,
-                                                                    style=dict(marginBottom=20)),
-                                                            ]), 
-                                                        ], md=10),
-                                                        dbc.Col([
-                                                            dbc.FormGroup([
-                                                                dbc.Label("percentage:", html_for='density-cats-cats'),
-                                                                dbc.Select('density-cats-percentage', 
-                                                                        options=[dict(label='absolute', value='absolute'),
-                                                                                dict(label='percentage', value='percentage')],
-                                                                                value='absolute'),
-                                                                
-                                                            ]), 
-                                                        ], md=2)
-                                                    ], form=True), 
-                                                ], md=10),
-                                                dbc.Col([
-                                                    dbc.Label("All"),
-                                                    dcc.Graph(id='density-cats-pie'),
-                                                    dbc.Label("Selected"),
-                                                    dcc.Graph(id='density-cats-pie-include'),
-                                                    dbc.Label("Not selected"),
-                                                    dcc.Graph(id='density-cats-pie-exclude'),
-                                                ], md=2),
-                                            ]),
-                                            dbc.Row([
-                                                dbc.Col([
-                                                    html.Hr()
-                                                ])
-                                            ]),
-                                            dbc.Row([
-                                                dbc.Col([
-                                                    dbc.FormGroup([
-                                                        dbc.Button("Split", id='density-cats-split-button', 
-                                                            color="primary", size="m", style=dict(width=100)),
-                                                    ]),
-                                                ], md=6),
-                                                dbc.Col([
-                                                    dbc.FormGroup([
-                                                        html.Div([
-                                                            dbc.Select(id='density-cats-prediction', options=[
-                                                                    {'label':f"{y}. {label}", 'value':str(y)} for y, label in enumerate(self.labels)],
-                                                                    value=str(len(self.labels)-1), #clearable=False, 
-                                                                    bs_size="sm"),
-                                                            dbc.Button("Predict", id='density-cats-predict-button', color="primary",
-                                                                        size="m", style=dict(marginLeft=10, width=100)),
-                                                            dbc.Button("All", id='density-cats-predict-all-button', color="primary",
-                                                                        size="m", style=dict(marginLeft=10, width=100)),
-                                                        ], style = {'width': '100%', 'display': 'flex', 'align-items': 'right', 'justify-content': 'right'})    
-                                                    ], row=True),
-                                                ], md=6),
-                                            ], form=True),
-                                        ], id='density-cats-div'),
-                                    ]),
-                                ]),
-                            ]),
-                        ]),
-                    
-                ]),
-            ], style=dict(marginBottom=30)),
+            html.Div(id='upload-div', children=[
+                dcc.Upload(
+                    id='upload-model',
+                    children=html.Div([
+                        'Drag and drop a .yaml or .pkl model or ',
+                        html.A('Select File')
+                    ]),
+                    style={
+                        'width': '100%',
+                        'height': '60px',
+                        'lineHeight': '60px',
+                        'borderWidth': '1px',
+                        'borderStyle': 'dashed',
+                        'borderRadius': '5px',
+                        'textAlign': 'center',
+                        'margin': '10px'
+                    },
+                    multiple=False
+                ),
+            ], style=dict(display="none")),
+               
             dbc.Row([
                 dbc.Col([
                     dbc.Card([
                         dbc.CardHeader([
-                            html.H3("Model", className='card-title'),
-                            html.H6("You can select a rule by clicking on it in the Graph", className='card-subtitle'),
+                            dbc.Row([
+                                dbc.Col([
+                                    html.H3("Add New Rule", className='card-title'),
+                                ], md=8),
+                                dbc.Col([
+                                    dbc.FormGroup([
+                                        dbc.Select(
+                                            options=[{'label':'Append new rule after (show data out)', 'value':'append'},
+                                                    {'label':'Replace rule (show data in)', 'value':'replace'}],
+                                            value='append',
+                                            id='append-or-replace'),
+                                        dbc.Tooltip("When you select to 'append' a rule, the plots will display all the data "
+                                                    "that is still unlabeled after the selected rule. When you add a rule it will appended"
+                                                    " with a CaseWhen block. "   
+                                                    "When you select 'replace' the plots will display all the data going *into* "
+                                                    "the selected rule. When you add a rule, it will replace the existing rule.",
+                                                    target='append-or-replace'),
+                                    ]),
+                                ], md=4),
+                            ]),  
+                        ]),
+                        dbc.CardBody([
+                            dcc.Tabs(id='rule-tabs', value='density-tab', 
+                                children=[
+                                    dcc.Tab(label="Single Feature Rules", id='density-tab', value='density-tab', children=[
+                                        dbc.Card([
+                                            dbc.CardBody([
+                                                dbc.Row([
+                                                    dbc.Col([
+                                                        dbc.Label("Feature"),
+                                                        dcc.Dropdown(id='density-col', 
+                                                                    options=[{'label':col, 'value':col} for col in self.X.columns], 
+                                                                    value=self.initial_col, 
+                                                                    clearable=False),
+                                                    ], md=9),
+                                                    dbc.Col([
+                                                            dbc.FormGroup([
+                                                                html.Div([
+                                                                    dbc.Button("Suggest", id='density-col-suggest-button', color="primary", size="sm",
+                                                                        style={'position':'absolute', 'bottom':'25px'}),
+                                                                    dbc.Tooltip("Select the feature with the largest gini reduction potential.", 
+                                                                                target='density-col-suggest-button'),
+                                                                ], style={'display': 'flex', 'flex-direction':'column'}),
+                                                            ]),
+                                                        ], md=1, ),
+                                                    dbc.Col([
+                                                        dbc.FormGroup([
+                                                            dbc.Label("Sort features", html_for='parallel-sort'),
+                                                            dbc.Select(id='density-sort',
+                                                                options=[dict(label=s, value=s) for s in ['dataframe', 'alphabet', 'histogram overlap', 'gini reduction']],
+                                                                value='gini reduction', 
+                                                                style=dict(height=40, width=150, horizontalAlign = 'right'),
+                                                                bs_size="sm",
+                                                            ),
+                                                            dbc.Tooltip("You can sort the features by their potential gini reduction (default), "
+                                                                        "or alphabetically, by order in the dataframe, or by histogram overlap.", 
+                                                                        target='density-sort'),
+                                                        ]),
+                                                    ], md=2),
+                                                ]),
+                                                html.Div([
+                                                    dbc.Row([
+                                                        dbc.Col([
+                                                            dcc.Graph(id='density-num-plot', config=dict(modeBarButtons=[[]], displaylogo=False)),
+                                                        ], md=10),
+                                                        dbc.Col([
+                                                            dbc.Label("All", id='density-num-pie-all-label'),
+                                                            dcc.Graph(id='density-num-pie-all', config=dict(modeBarButtons=[[]], displaylogo=False), style=dict(marginBottom=20)),
+                                                            dbc.Label("Selected", id='density-num-pie-selected-label'),
+                                                            dcc.Graph(id='density-num-pie-selected', config=dict(modeBarButtons=[[]], displaylogo=False), style=dict(marginBottom=20)),
+                                                            dbc.Label("Not Selected", id='density-num-pie-not-selected-label'),
+                                                            dcc.Graph(id='density-num-pie-not-selected', config=dict(modeBarButtons=[[]], displaylogo=False)),
+                                                        ], md=2),
+                                                    ]),
+                                                    dbc.Row([
+                                                        dbc.Col([
+                                                            html.Div([
+                                                                dbc.FormGroup([
+                                                                    dcc.RangeSlider(id='density-num-cutoff', 
+                                                                        allowCross=False, min=0, max=10,
+                                                                        tooltip=dict(always_visible=True)),
+                                                                ]), 
+                                                            ], style=dict(marginLeft=45)),                                                                    
+                                                        ], md=9),
+                                                        dbc.Col([
+                                                            dbc.FormGroup([
+                                                                dbc.Select(
+                                                                    options=[
+                                                                        {'label':'Range', 'value':'range'},
+                                                                        {'label':'Lesser than', 'value':'lesser_than'},
+                                                                        {'label':'Greater than', 'value':'greater_than'}
+                                                                    ],
+                                                                    value='lesser_than',
+                                                                    id='density-num-ruletype',
+                                                                    bs_size="sm",
+                                                                ),
+                                                                dbc.Tooltip("LesserThan rules ignore the lower bound and GreaterThan "
+                                                                            "rules ignore the upper bound. RangeRules respect both upper and lower bounds.", 
+                                                                                target='density-num-ruletype'),
+                                                            ]), 
+                                                        ], md=2),
+                                                        dbc.Col([
+                                                            dbc.FormGroup([
+                                                                html.Div([
+                                                                    dbc.Button("Suggest", id='density-num-suggest-button', color="primary", size="sm"),
+                                                                    dbc.Tooltip("Select the best split point that minimizes the weighted average gini after "
+                                                                                "the split, similar to a DecisionTree",  target='density-num-suggest-button'),
+                                                                ], style={'vertical-align': 'bottom'})  
+                                                            ]),
+                                                        ], md=1),
+                                                    ], form=True),
+                                                    dbc.Row([
+                                                        dbc.Col([
+                                                            html.Hr()
+                                                        ])
+                                                    ]),
+                                                    dbc.Row([
+                                                        dbc.Col([
+                                                            dbc.FormGroup([
+                                                                dbc.Button("Split", id='density-num-split-button', 
+                                                                        color="primary", size="m", style=dict(width=150)),
+                                                                dbc.Tooltip("Generate a Split rule where all observations where the condition holds go left "
+                                                                            "and all other observations go right.", target='density-num-split-button'),
+                                                            ]),
+                                                        ], md=6),
+                                                        dbc.Col([
+                                                            dbc.FormGroup([
+                                                                html.Div([
+                                                                    dbc.Select(id='density-num-prediction', options=[
+                                                                            {'label':f"{y}. {label}", 'value':str(y)} for y, label in enumerate(self.labels)],
+                                                                                value=str(len(self.labels)-1), bs_size="md"),
+                                                                    dbc.Button("Predict Selected", id='density-num-predict-button', color="primary",
+                                                                                size="m", style=dict(marginLeft=10, width=400)),
+                                                                    dbc.Tooltip("Apply the prediction for all observation for which the condition holds. All "
+                                                                                "other observations will either be covered by later rules, or predicted nan.", 
+                                                                                target='density-num-predict-button'),
+                                                                    dbc.Button(children="Predict All", id='density-num-predict-all-button', color="primary",
+                                                                                size="m", style=dict(marginLeft=10, width=400)),
+                                                                    dbc.Tooltip(children="Apply the prediction to all observations regardless whether the condition holds. Use this "
+                                                                                "rule as the final rule in order to prevent any nan's showing up in your predictions.",
+                                                                                target='density-num-predict-all-button'),
+                                                                ], style={'width': '100%', 'display': 'flex', 'align-items': 'right', 'justify-content': 'right'}),
+                                                            ], row=True),
+                                                        ], md=6),
+                                                    ], form=True),
+                                                ], id='density-num-div', style=dict(display="none")),
+                                                html.Div([
+                                                    dbc.Row([
+                                                        dbc.Col([
+                                                            dcc.Graph(id='density-cats-plot', config=dict(modeBarButtons=[[]], displaylogo=False)),
+                                                        ], md=10),
+                                                        dbc.Col([
+                                                            dbc.Label("All", id='density-cats-pie-all-label'),
+                                                            dcc.Graph(id='density-cats-pie-all', config=dict(modeBarButtons=[[]], displaylogo=False), style=dict(marginBottom=20)),
+                                                            dbc.Label("Selected", id='density-cats-pie-selected-label'),
+                                                            dcc.Graph(id='density-cats-pie-selected', config=dict(modeBarButtons=[[]], displaylogo=False), style=dict(marginBottom=20)),
+                                                            dbc.Label("Not selected", id='density-cats-pie-not-selected-label'),
+                                                            dcc.Graph(id='density-cats-pie-not-selected', config=dict(modeBarButtons=[[]], displaylogo=False)),
+                                                        ], md=2),
+                                                    ]),
+                                                    dbc.Row([
+                                                        dbc.Col([
+                                                            dbc.FormGroup([
+                                                                dcc.Dropdown(id='density-cats-cats', value=[], multi=True,
+                                                                    style=dict(marginBottom=20)),
+                                                            ]), 
+                                                        ], md=8),
+                                                        dbc.Col([
+                                                            dbc.FormGroup([
+                                                                html.Div([
+                                                                    dbc.Button("Invert", id='density-cats-invert-button', color="primary", size="sm"),
+                                                                    dbc.Tooltip("Invert the category selection: all selected will be unselected and "
+                                                                                    "all not selected will be selected", target='density-cats-invert-button'),
+                                                                ], style={'vertical-align': 'bottom'}),
+                                                            ]),
+                                                        ], md=1),
+                                                        dbc.Col([
+                                                            dbc.FormGroup([
+                                                                html.Div([
+                                                                    dbc.Button("Suggest", id='density-cats-suggest-button', color="primary", size="sm"),
+                                                                    dbc.Tooltip("Suggest best single category to select to minimize weighted gini. Either the category "
+                                                                                "or the inverse will be selected, whichever has the lowest gini", target='density-cats-suggest-button'),
+                                                                ], style={'vertical-align': 'bottom'}) 
+                                                            ]),
+                                                        ], md=1),
+                                                        dbc.Col([
+                                                            html.Div([
+                                                                dbc.FormGroup([
+                                                                    dbc.Checklist(
+                                                                        options=[{"label":  "Display Relative", "value": True}],
+                                                                        value=[],
+                                                                        id='density-cats-percentage',
+                                                                        inline=True,
+                                                                        switch=True,
+                                                                    ),
+                                                                    dbc.Tooltip("Display barcharts as percentages instead of counts.", target='density-cats-percentage'),
+                                                                ]),
+                                                            ], style={'display': 'flex', 'align-items': 'right', 'justify-content': 'flex-end'}),
+                                                        ], md=2),
+                                                    ], form=True),
+                                                    dbc.Row([
+                                                        dbc.Col([
+                                                            html.Hr()
+                                                        ])
+                                                    ]),
+                                                    dbc.Row([
+                                                        dbc.Col([
+                                                            dbc.FormGroup([
+                                                                dbc.Button("Split", id='density-cats-split-button', 
+                                                                    color="primary", size="m", style=dict(width=150)),
+                                                                dbc.Tooltip("Generate a Split rule where all observations where the condition holds go left "
+                                                                            "and all other observations go right.", target='density-cats-split-button'),
+                                                            ]),
+                                                        ], md=6),
+                                                        dbc.Col([
+                                                            dbc.FormGroup([
+                                                                html.Div([
+                                                                    dbc.Select(id='density-cats-prediction', options=[
+                                                                            {'label':f"{y}. {label}", 'value':str(y)} for y, label in enumerate(self.labels)],
+                                                                            value=str(len(self.labels)-1), #clearable=False, 
+                                                                            bs_size="md"),
+                                                                    dbc.Button("Predict Selected", id='density-cats-predict-button', color="primary",
+                                                                                size="m", style=dict(marginLeft=10, width=400)),
+                                                                    dbc.Tooltip("Apply the prediction for all observation for which the condition holds. All "
+                                                                                "other observations will either be covered by later rules, or predicted nan.",
+                                                                                target='density-cats-predict-button'),
+                                                                    dbc.Button("Predict All", id='density-cats-predict-all-button', color="primary",
+                                                                                size="m", style=dict(marginLeft=10, width=400)),
+                                                                    dbc.Tooltip("Apply the prediction to all observations regardless whether the condition holds. Use this "
+                                                                            "rule as the final rule in order to prevent any nan's showing up in your predictions.",
+                                                                                target='density-cats-predict-all-button'),
+                                                                ], style = {'width': '100%', 'display': 'flex', 'align-items': 'right', 'justify-content': 'right'})    
+                                                            ], row=True),
+                                                        ], md=6),
+                                                    ], form=True),
+                                                ], id='density-cats-div'),
+                                            ]),
+                                        ]),
+                                    ]),
+                                    dcc.Tab(label="Multi Feature Rules", id='parallel-tab', value='parallel-tab', children=[
+                                        dbc.Card([
+                                            dbc.CardBody([
+                                                dbc.Row([
+                                                    dbc.Col([
+                                                        dbc.FormGroup([
+                                                                dbc.Label("Display Features", html_for='parallel-cols', id='parallel-cols-label'),
+                                                                dcc.Dropdown(id='parallel-cols', multi=True,
+                                                                    options=[{'label':col, 'value':col} 
+                                                                            for col in self.X.columns],
+                                                                    value = self.X.columns.tolist()),
+                                                                dbc.Tooltip("Select the features to be displayed in the Parallel Plot", 
+                                                                        target='parallel-cols-label'),
+                                                            ]),
+                                                    ], md=10),
+                                                    dbc.Col([
+                                                        dbc.FormGroup([
+                                                            dbc.Label("Sort features", html_for='parallel-sort', id='parallel-sort-label'),
+                                                            dbc.Select(id='parallel-sort',
+                                                                options=[dict(label=s, value=s) for s in ['dataframe', 'alphabet', 'histogram overlap', 'gini reduction']],
+                                                                value='gini reduction', 
+                                                                style=dict(height=40, width=150, horizontalAlign = 'right'),
+                                                                bs_size="sm",
+                                                            ),
+                                                            dbc.Tooltip("Sort the features in the plot from least histogram overlap "
+                                                                        "(feature distributions look the most different for different "
+                                                                        "values of y) on the right, to highest histogram overlap on the left.", 
+                                                                        target='parallel-sort-label'),
+                                                        ])
+                                                    ], md=2),
+                                                ], form=True),
+                                                dbc.Row([
+                                                    dbc.Col([
+                                                        html.Small('You can select multiple ranges in the parallel plot to define a multi feature rule.', className="text-muted",),
+                                                        dcc.Graph(id='parallel-plot'),
+                                                        html.Div(id='parallel-description'), 
+                                                        
+                                                    ])
+                                                ]),
+                                                dbc.Row([
+                                                    dbc.Col([
+                                                        html.Div([
+                                                            dbc.Row(dbc.Col([
+                                                                dbc.Label("All", id='parallel-pie-all-label', html_for='parallel-pie-all'),
+                                                                dbc.Tooltip("Label distribution for all observations in the parallel plot above.", 
+                                                                        target='parallel-pie-all-label'),
+                                                                dcc.Graph(id='parallel-pie-all', config=dict(modeBarButtons=[[]], displaylogo=False)),   
+                                                            ])),
+                                                        ], style={'display':'flex', 'justify-content': 'center', 'align-items': 'center'}),
+                                                    ]),
+                                                    dbc.Col([
+                                                        html.Div([
+                                                            dbc.Row(dbc.Col([
+                                                                dbc.Label("Selected", id='parallel-pie-selection-label'),
+                                                                dbc.Tooltip("Label distribution for all the feature ranges selected above", 
+                                                                        target='parallel-pie-selection-label'),
+                                                                dcc.Graph(id='parallel-pie-selection', config=dict(modeBarButtons=[[]], displaylogo=False)), 
+                                                            ])),  
+                                                        ], style={'display':'flex', 'justify-content': 'center', 'align-items': 'center'}),
+                                                    ]),
+                                                    dbc.Col([
+                                                        html.Div([
+                                                            dbc.Row(dbc.Col([
+                                                                dbc.Label("Not selected", id='parallel-pie-non-selection-label'),
+                                                                dbc.Tooltip("Label distribution for all the feature ranges not selected above", 
+                                                                        target='parallel-pie-non-selection-label'),
+                                                                dcc.Graph(id='parallel-pie-non-selection', config=dict(modeBarButtons=[[]], displaylogo=False)),
+                                                            ])),
+                                                        ], style={'display':'flex', 'justify-content': 'center', 'align-items': 'center'}),
+                                                    ]),
+                                                ]),
+                                                dbc.Row([
+                                                    dbc.Col([
+                                                        html.Hr()
+                                                    ]),
+                                                ]),
+                                                dbc.Row([
+                                                    dbc.Col([
+                                                        dbc.FormGroup([
+                                                            dbc.Button("Split", id='parallel-split-button', 
+                                                                            color="primary", size="m", style=dict(width=150)),
+                                                            dbc.Tooltip("Make a split using the selection in the Parallel Plot. "
+                                                                    "Data in the selected ranges goes left (true), all other data "
+                                                                    "goes right (false).", target='parallel-split-button'),
+                                                        ]),
+                                                    ], md=6),
+                                                    dbc.Col([
+                                                        dbc.FormGroup([
+                                                            html.Div([
+                                                                dbc.Select(id='parallel-prediction', options=[
+                                                                    {'label':f"{y}. {label}", 'value':str(y)} for y, label in enumerate(self.labels)],
+                                                                    value=str(len(self.labels)-1), 
+                                                                    bs_size="md"),
+                                                                dbc.Tooltip("The prediction to be applied. Either to all data ('Predict All'), "
+                                                                            "or to the selected data ('Predict Selected'). Will get automatically "
+                                                                            "Inferred from the selected data in the Parallel Plot.", target='parallel-prediction'),
+                                                                dbc.Button("Predict Selected", id='parallel-predict-button', 
+                                                                        color="primary", size="m", style=dict(marginLeft=10, width=400)),
+                                                                dbc.Tooltip("Apply the prediction to all data within the ranges "
+                                                                            "selected in the Parallel Plot.", target='parallel-predict-button'),
+                                                                dbc.Button("Predict All", id='parallel-predict-all-button', 
+                                                                            color="primary", size="m", style=dict(marginLeft=10, width=400)),
+                                                                dbc.Tooltip("Add a PredictionRule: Apply a single uniform prediction to all the "
+                                                                            "data without distinction.", target='parallel-predict-all-button'),
+                                                            ], style = {'width': '100%', 'display': 'flex', 'align-items': 'right', 'justify-content': 'right'})     
+                                                        ], row=True),
+                                                    ], md=6),
+                                                ], form=True),
+                                            ]),
+                                        ]),
+                                    ]),
+                            ], style=dict(marginTop=5)),
+                        ]),
+                    ]),
+                ]),
+            ], style=dict(marginBottom=20, marginTop=20)),
+            dbc.Row([
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardHeader([
+                            dbc.Row([
+                                dbc.Col([
+                                    html.H3("Model", className='card-title'),
+                                ], md=6),
+                                dbc.Col([
+                                    html.Div([
+                                        dbc.FormGroup([
+                                            dbc.Label("Selected rule:", id='selected-rule-id-label', 
+                                                        html_for='selected-rule-id', className="mr-2"),
+                                            dcc.Dropdown(id='selected-rule-id', options=[
+                                                {'label':str(ruleid), 'value':int(ruleid)} 
+                                                    for ruleid in range(self.model._get_max_rule_id()+1)],
+                                                    value=0, clearable=False, style=dict(width=80)),
+                                            dbc.Tooltip("You can either select a rule id here or by clicking in the model graph.", 
+                                                            target='selected-rule-id-label'),
+                                            dcc.ConfirmDialogProvider(
+                                                children=html.Button("Remove Rule", id='remove-rule-button', className="btn btn-danger btn-sm",
+                                                                        style=dict(marginLeft=5)),
+                                                id='remove-rule-confirm',
+                                                message='Warning! Once you have removed a rule there is no undo button or ctrl-z! Are you sure?'
+                                            ),
+                                            dbc.Tooltip("Remove the selected rule from the model. Warning! Cannot be undone!", 
+                                                        target='remove-rule-button'),
+                                            dcc.ConfirmDialogProvider(
+                                                children=html.Button("Reset Model", id='reset-model-button', className="btn btn-danger btn-sm",
+                                                                        style=dict(marginLeft=10)),
+                                                id='reset-model-confirm',
+                                                message='Warning! Once you have reset the model there is no undo button or ctrl-z! Are you sure?'
+                                            ),
+                                            dbc.Tooltip("Reset the model to the initial state. Warning! Cannot be undone!", 
+                                                        target='reset-model-button'),
+                                        ], row=True),
+                                    ], style={'display': 'flex', 'align-items': 'right', 'justify-content': 'flex-end'}),
+                                ], md=6), 
+                            ], form=True, style={'marginLeft':8, 'marginTop':10}),
                         ]),
                         dbc.CardBody([
                             dcc.Tabs(id='model-tabs', value='model-graph-tab', children=[
@@ -546,9 +787,11 @@ class RuleClassifierDashboard:
                                                         dbc.Label("Color scale: ", html_for='absolute-or-relative', className="mr-2"),
                                                         dbc.Select(id='model-graph-color-scale',
                                                             options=[{'label':'Absolute', 'value':'absolute'},
-                                                                        {'label':'Relative', 'value':'relative'}],
+                                                                     {'label':'Relative', 'value':'relative'}],
                                                             value='absolute',
                                                             bs_size="sm", style=dict(width=100)),
+                                                        dbc.Tooltip("Color the rules by either by absolute accuracy (0%=red, 100%=green), "
+                                                                "or by relative accuracy (lowest accuracy=red, highest=green)", target='model-graph-color-scale'),
                                                     ], row=True), 
                                                 ], md=3),
                                                 dbc.Col([
@@ -558,61 +801,66 @@ class RuleClassifierDashboard:
                                                             options=[dict(label=o, value=o) for o in ['name', 'description', 'coverage', 'accuracy']],
                                                             value='description', 
                                                             bs_size="sm",style=dict(width=130)),
+                                                        dbc.Tooltip("You can display rule description, accuracy or coverage next to the markers on the model graph.", 
+                                                                        target='model-graph-scatter-text'),
                                                     ], row=True), 
                                                 ], md=3),
-                                                dbc.Col([
-                                                    dbc.FormGroup([
-                                                        html.Div([
-                                                            dcc.ConfirmDialogProvider(
-                                                                children=html.Button("Remove Rule", id='remove-rule-button', className="btn btn-danger btn-sm",
-                                                                                        style=dict(marginLeft=50)),
-                                                                id='remove-rule-confirm',
-                                                                message='Warning! Once you have removed a rule there is undo button or ctrl-z! Are you sure?'
-                                                            ),
-                                                            dbc.Tooltip("Remove the selected rule from the model. Warning! Cannot be undone!", 
-                                                                        target='remove-rule-button'),
-                                                            dcc.ConfirmDialogProvider(
-                                                                children=html.Button("Reset Model", id='reset-model-button', className="btn btn-danger btn-sm",
-                                                                                        style=dict(marginLeft=10)),
-                                                                id='reset-model-confirm',
-                                                                message='Warning! Once you have reset the model there is undo button or ctrl-z! Are you sure?'
-                                                            ),
-                                                            dbc.Tooltip("Reset the model to the initial state. Warning! Cannot be undone!", 
-                                                                        target='reset-model-button'),
-                                                        ], style = {'width': '100%', 'display': 'flex', 'align-items': 'right', 'justify-content': 'right'}), 
-                                                    ], row=True),
-                                                ], md=6),
-                                            ], form=True, style=dict(marginTop=5)),
+                                            ], form=True, style=dict(marginTop=8, marginLeft=16, marginRight=16)),
                                             dbc.Row([
                                                 dbc.Col([
                                                     dcc.Graph(id='model-graph'),
                                                 ]),
                                             ]),   
+                                            dbc.Row([
+                                                dbc.Col([
+                                                    html.P("You can select a rule by clicking on it in the Graph"),
+                                                ])
+                                            ])
                                         ])
                                 ),
                                 dcc.Tab(id='model-description-tab', value='model-description-tab', label='Description', 
                                         children=html.Div([dbc.Row([dbc.Col([
+                                                html.Div([
+                                                    dcc.Clipboard(
+                                                        target_id="model-description",
+                                                        title="copy"),
+                                                ], style={'display': 'flex', 'align-items': 'right', 'justify-content': 'flex-end'}),
                                                 dcc.Markdown(id='model-description'),
+                                                
                                             ])])])
                                 ),
                                 dcc.Tab(id='model-yaml-tab', value='model-yaml-tab', label='.yaml', 
                                         children=html.Div([dbc.Row([dbc.Col([
-                                                html.Div("To instantiate a model from a .yaml file:"),
-                                                dcc.Markdown("```\nfrom rule_estimator import *\n"
+                                                html.Div("To instantiate a model from a .yaml file:", style=dict(marginBottom=10)),
+                                                dcc.Markdown("```\nfrom rule_estimator import RuleClassifier\n"
                                                             "model = RuleClassifier.from_yaml('model.yaml')\n"
                                                             "model.predict(X_test)\n```"),
-                                                dbc.Label("model.yaml:"),
+                                                html.B("model.yaml:"),
+                                                html.Div([
+                                                    dcc.Clipboard(
+                                                        target_id="model-yaml",
+                                                        title="copy"),
+                                                ], style={'display': 'flex', 'align-items': 'right', 'justify-content': 'flex-end'}),
                                                 dcc.Markdown(id='model-yaml'),
+                                                
                                             ])])])
                                 ),
-                                dcc.Tab(id='model-code-tab', value='model-code-tab', label='Code', 
-                                        children=dcc.Markdown(id='model-code')
+                                dcc.Tab(id='model-code-tab', value='model-code-tab', label='Python Code', 
+                                        children=[
+                                            html.Div([
+                                                    dcc.Clipboard(
+                                                        target_id="model-code",
+                                                        title="copy"),
+                                                ], style={'marginTop':20, 'display': 'flex', 'align-items': 'right', 'justify-content': 'flex-end'}),
+                                            dcc.Markdown(id='model-code'),
+                                            
+                                        ]
                                 ),
                             ]),
                         ]),
                     ]),
                 ]),
-            ]),
+            ], style=dict(marginBottom=20, marginTop=20)),
             dbc.Row([
                 dbc.Col([
                     dbc.Card([
@@ -620,14 +868,64 @@ class RuleClassifierDashboard:
                             html.H3("Performance"),
                         ]),
                         dbc.CardBody([
-                            html.Div(id='model-performance')
-                        ])
+                            dcc.Tabs(id='performance-tabs', value='performance-overview-tab', children=[
+                                dcc.Tab(id='performance-rules-tab2', value='performance-overview-tab', label="Model Performance", 
+                                    children=html.Div([
+                                        dbc.Row([
+                                            dbc.Col([
+                                                dbc.Select(id='model-performance-select',
+                                                    options=[
+                                                        dict(label='Full model', value='model'),
+                                                        dict(label='Single Rule', value='rule'),
+                                                    ],
+                                                    value='full_model',
+                                                ),
+                                                dbc.Tooltip("Display performance for the model as a whole or "
+                                                            "only for the currently selected rule", target='model-performance-select'),
+                                            ]),
+                                        ]),
+                                        dbc.Row([
+                                            dbc.Col([
+                                                dcc.Graph(id='model-performance-confmat'),
+                                            ], md=6),
+                                            dbc.Col([
+                                                html.Div(id='model-performance-metrics'),
+                                                html.Div(id='model-performance-coverage'),
+                                            ]),
+                                        ]),
+                                    ])),
+                                dcc.Tab(id='performance-rules-tab', value='performance-rules-tab', label="All rules",
+                                    children=html.Div(id='model-performance')),
+                            ]),
+                        ]),
                     ]),  
                 ]),
-            ]),
+            ], style=dict(marginBottom=20, marginTop=20)),
         ])
                                 
     def register_callbacks(self, app):
+
+        @app.callback(
+            Output("download-yaml", "data"),
+            Input("download-yaml-button", "n_clicks"),
+            State('model-store', 'data')
+        )
+        def download_yaml(n_clicks, model):
+            if n_clicks is not None:
+                model = self._get_model(model)
+                return dict(content=model.to_yaml(), filename="model.yaml")
+            raise PreventUpdate
+        
+        @app.callback(
+            Output("download-pickle", "data"),
+            Input("download-pickle-button", "n_clicks"),
+            State('model-store', 'data')
+        )
+        def download_pickle(n_clicks, model):
+            if n_clicks is not None:
+                model = self._get_model(model)
+                return dcc.send_bytes(model.pickle().read(), "model.pkl")
+            raise PreventUpdate
 
         @app.callback(
             Output('updated-rule-id', 'data'),
@@ -637,10 +935,17 @@ class RuleClassifierDashboard:
             Input('removerule-updated-rule-id', 'data'),
             Input('resetmodel-updated-rule-id', 'data'),
             Input('model-graph', 'clickData'),
+            Input('uploaded-model', 'data')
         )
         def update_model(parallel_rule_id, num_rule_id, cats_rule_id, 
-                        removerule_rule_id, resetmodel_rule_id, clickdata):
+                        removerule_rule_id, resetmodel_rule_id, clickdata,
+                        uploaded_model):
             trigger = self._get_callback_trigger()
+            if trigger == 'uploaded-model':
+                model = self._get_model(uploaded_model)
+                if model.get_max_rule_id() > 0:
+                    return 1
+                return 0
             if trigger == 'model-graph':
                 if (clickdata is not None and clickdata['points'][0] is not None and 
                     'hovertext' in clickdata['points'][0]):
@@ -666,12 +971,12 @@ class RuleClassifierDashboard:
             Input('density-cats-updated-model', 'data'),
             Input('removerule-updated-model', 'data'),
             Input('resetmodel-updated-model', 'data'),
+            Input('uploaded-model', 'data'),
             State('model-store', 'data')
         )
         def store_model(parallel_update, num_update, cats_update, 
-                        removerule_update, resetmodel_update, model):
-            if model is None:
-                return self.model.to_json()
+                        removerule_update, resetmodel_update, uploaded_model, 
+                        model):
             trigger = self._get_callback_trigger()
             if trigger == 'parallel-updated-model':
                 if parallel_update is not None: return parallel_update
@@ -683,6 +988,10 @@ class RuleClassifierDashboard:
                 if removerule_update is not None: return removerule_update
             elif trigger == 'resetmodel-updated-model':
                 if resetmodel_update is not None: return resetmodel_update
+            elif trigger == 'uploaded-model':
+                if uploaded_model is not None: return uploaded_model
+            if model is None:
+                return self.model.to_json()
             raise PreventUpdate
 
         @app.callback(
@@ -705,7 +1014,7 @@ class RuleClassifierDashboard:
             return ("update_graph", 
                     f"```\n{model.describe()}```",
                     f"```yaml\n{model.to_yaml()}\n```",
-                    f"```python\nmodel = {model.to_code()[1:]}\n```",
+                    f"```python\nfrom rule_estimator import *\n\nmodel = {model.to_code()[1:]}\n```",
                     "update_performance",
                     rule_id_options, rule_id)
         
@@ -714,6 +1023,7 @@ class RuleClassifierDashboard:
         @app.callback(
             Output('density-num-updated-rule-id', 'data'),
             Output('density-num-updated-model', 'data'),
+            Output('added-num-density-rule', 'data'),
             Input('density-num-split-button', 'n_clicks'),
             Input('density-num-predict-button', 'n_clicks'),
             Input('density-num-predict-all-button', 'n_clicks'),
@@ -731,26 +1041,31 @@ class RuleClassifierDashboard:
             trigger = self._get_callback_trigger()
             if trigger == 'density-num-predict-button':
                 if rule_type == 'lesser_than':
-                    new_rule = LesserThan(col=col, cutoff=cutoff, prediction=int(prediction))
+                    new_rule = LesserThan(col=col, cutoff=cutoff[1], prediction=int(prediction))
                 elif rule_type == 'greater_than':
-                    new_rule = GreaterThan(col=col, cutoff=cutoff, prediction=int(prediction))
+                    new_rule = GreaterThan(col=col, cutoff=cutoff[0], prediction=int(prediction))
+                elif rule_type == 'range':
+                    new_rule = RangeRule(col=col, min=cutoff[0], max=cutoff[1], prediction=int(prediction))
             elif trigger == 'density-num-split-button':
                 if rule_type == 'lesser_than':
-                    new_rule = LesserThanSplit(col=col, cutoff=cutoff)
+                    new_rule = LesserThanSplit(col=col, cutoff=cutoff[1])
                 elif rule_type == 'greater_than':
-                    new_rule = GreaterThanSplit(col=col, cutoff=cutoff)
+                    new_rule = GreaterThanSplit(col=col, cutoff=cutoff[0])
+                elif rule_type == 'range':
+                    new_rule = RangeSplit(col=col, min=cutoff[0], max=cutoff[1])
             elif trigger == 'density-num-predict-all-button':
                 new_rule = PredictionRule(prediction=int(prediction))
             
             if new_rule is not None:
                 rule_id, model = self._change_model(model, rule_id, new_rule, append_or_replace)
-                return rule_id, model.to_json()
+                return rule_id, model.to_json(), "trigger"
             raise PreventUpdate
 
         #########                                               DENSITY CATS RULE CALLBACK
         @app.callback(
             Output('density-cats-updated-rule-id', 'data'),
             Output('density-cats-updated-model', 'data'),
+            Output('added-cats-density-rule', 'data'),
             Input('density-cats-split-button', 'n_clicks'),
             Input('density-cats-predict-button', 'n_clicks'),
             Input('density-cats-predict-all-button', 'n_clicks'),
@@ -773,7 +1088,7 @@ class RuleClassifierDashboard:
 
             if new_rule is not None:
                 rule_id, model = self._change_model(model, rule_id, new_rule, append_or_replace)
-                return rule_id, model.to_json()
+                return rule_id, model.to_json(), "trigger"
             raise PreventUpdate
         
         #########                                               PARALLEL RULE CALLBACK
@@ -793,7 +1108,6 @@ class RuleClassifierDashboard:
                         rule_id, append_or_replace, prediction, fig, model):
             new_rule = None
             trigger = self._get_callback_trigger()
-            print(trigger, flush=True)
             if fig is not None:
                 model = self._get_model(model)
                 plot_data = fig['data'][0].get('dimensions', None)
@@ -813,7 +1127,6 @@ class RuleClassifierDashboard:
                     raise PreventUpdate
 
                 rule_id, model = self._change_model(model, rule_id, new_rule, append_or_replace)
-                print(new_rule, rule_id, model, flush=True)
                 return rule_id, model.to_json()
 
             raise PreventUpdate
@@ -842,29 +1155,7 @@ class RuleClassifierDashboard:
             if n_clicks is not None:
                 return 0, self.model.to_json()
             raise PreventUpdate
-
-        @app.callback(
-            Output("download-yaml", "data"),
-            Input("download-yaml-button", "n_clicks"),
-            State('model-store', 'data')
-        )
-        def download_yaml(n_clicks, model):
-            if n_clicks is not None:
-                model = self._get_model(model)
-                return dict(content=model.to_yaml(), filename="model.yaml")
-            raise PreventUpdate
-        
-        @app.callback(
-            Output("download-pickle", "data"),
-            Input("download-pickle-button", "n_clicks"),
-            State('model-store', 'data')
-        )
-        def download_pickle(n_clicks, model):
-            if n_clicks is not None:
-                model = self._get_model(model)
-                return dcc.send_bytes(model.pickle().read(), "model.pkl")
-            raise PreventUpdate
-
+ 
         @app.callback(
             Output('density-num-div', 'style'),
             Output('density-cats-div', 'style'),
@@ -872,19 +1163,30 @@ class RuleClassifierDashboard:
         )
         def update_density_hidden_divs(col):
             if col is not None:
-                if is_numeric_dtype(self.X[col]):
-                    return {}, dict(display="none")
-                else:
+                if col in self.cats:
                     return dict(display="none"), {}
+                else:
+                    return {}, dict(display="none")
+            else:
+                if self.X.columns[0] in self.cats:
+                    return dict(display="none"), {}
+                else:
+                    return {}, dict(display="none")
 
         @app.callback(
             Output('density-col', 'value'),
             Output('rule-tabs', 'value'),
             Input('selected-rule-id', 'value'),
             Input('append-or-replace', 'value'),
+            Input('density-col-suggest-button', 'n_clicks'),
+            State('train-or-val', 'value'),
             State('model-store', 'data'),
         )
-        def update_model_node(rule_id, append_or_replace, model):
+        def update_model_node(rule_id, append_or_replace, n_clicks, train_or_val, model):
+            trigger = self._get_callback_trigger()
+            if trigger == 'density-col-suggest-button':
+                model, X, y = self._get_model_X_y(model, train_or_val, rule_id, append_or_replace) 
+                return model._sort_cols_by_gini_reduction(X, y)[0], dash.no_update
             if append_or_replace == 'replace' and rule_id is not None:
                 model = self._get_model(model)
                 rule = model.get_rule(rule_id)
@@ -901,16 +1203,23 @@ class RuleClassifierDashboard:
                 elif isinstance(rule, GreaterThanSplit):
                     return rule.col, "density-tab"
                 elif isinstance(rule, MultiRange):
-                    return dash.no_update, "parallel-tab"
+                    return dash.no_update, "density-tab"
+                elif isinstance(rule, RangeRule):
+                    return dash.no_update, "density-tab"
+                elif isinstance(rule, RangeRule):
+                    return dash.no_update, "density-tab"
                 elif isinstance(rule, MultiRangeSplit):
                     return dash.no_update, "parallel-tab"
             raise PreventUpdate
 
         @app.callback(
-            Output('density-num-pie', 'figure'),
-            Output('density-num-pie-include', 'figure'),
-            Output('density-num-pie-exclude', 'figure'),
             Output('density-num-prediction', 'value'),
+            Output('density-num-pie-all-label', 'children'),
+            Output('density-num-pie-all', 'figure'),
+            Output('density-num-pie-selected-label', 'children'),
+            Output('density-num-pie-selected', 'figure'),
+            Output('density-num-pie-not-selected-label', 'children'),
+            Output('density-num-pie-not-selected', 'figure'),
             Input('density-num-cutoff', 'value'),
             Input('selected-rule-id', 'value'),
             Input('density-num-ruletype', 'value'),
@@ -925,9 +1234,11 @@ class RuleClassifierDashboard:
                 pie_size = 80
 
                 if rule_type == 'lesser_than':
-                    rule = LesserThanSplit(col, cutoff)
+                    rule = LesserThanSplit(col, cutoff[1])
                 elif rule_type == 'greater_than':
-                    rule = GreaterThanSplit(col, cutoff)
+                    rule = GreaterThanSplit(col, cutoff[0])
+                elif rule_type == 'range':
+                    rule = RangeSplit(col, cutoff[0], cutoff[1])
                 else:
                     raise ValueError("rule_type should be either lesser_than or greater_than!")
 
@@ -942,7 +1253,8 @@ class RuleClassifierDashboard:
                 if append_or_replace=='replace' and trigger in ['selected-rule-id', 'append-or-replace']:
                     rule = model.get_rule(rule_id)
                     if (isinstance(rule, LesserThan) or isinstance(rule, LesserThanSplit) or 
-                        isinstance(rule, GreaterThan) or isinstance(rule, GreaterThanSplit)):
+                        isinstance(rule, GreaterThan) or isinstance(rule, GreaterThanSplit) or
+                        isinstance(rule, RangeRule) or isinstance(rule, RangeSplit)):
                         prediction = rule.prediction
 
                 if prediction is None and not X_rule.empty:
@@ -952,14 +1264,21 @@ class RuleClassifierDashboard:
                 else:
                     prediction = 0       
              
-                return pie_all, pie_selection, pie_non_selection, str(prediction)
+                return (str(prediction),
+                        f"All ({len(X)})", pie_all, 
+                        f"Selected ({len(X_rule)})", pie_selection, 
+                        f"Not Selected ({len(X)-len(X_rule)})", pie_non_selection
+                    )
             raise PreventUpdate
 
         @app.callback(
-            Output('density-cats-pie', 'figure'),
-            Output('density-cats-pie-include', 'figure'),
-            Output('density-cats-pie-exclude', 'figure'),
             Output('density-cats-prediction', 'value'),
+            Output('density-cats-pie-all-label', 'children'),
+            Output('density-cats-pie-all', 'figure'),
+            Output('density-cats-pie-selected-label', 'children'),
+            Output('density-cats-pie-selected', 'figure'),
+            Output('density-cats-pie-not-selected-label', 'children'),
+            Output('density-cats-pie-not-selected', 'figure'),
             Input('density-cats-cats', 'value'),
             Input('selected-rule-id', 'value'),
             Input('train-or-val', 'value'),
@@ -993,7 +1312,11 @@ class RuleClassifierDashboard:
                 else:
                     prediction = 0
 
-                return pie_all, pie_selection, pie_non_selection, str(prediction)
+                return (str(prediction),
+                        f"All ({len(X)})", pie_all, 
+                        f"Selected ({len(X_rule)})", pie_selection, 
+                        f"Not Selected ({len(X)-len(X_rule)})", pie_non_selection
+                    )
             raise PreventUpdate
 
         @app.callback(
@@ -1014,15 +1337,50 @@ class RuleClassifierDashboard:
                 model, X, y = self._get_model_X_y(model, train_or_val, rule_id, append_or_replace) 
                 after = self._infer_after(append_or_replace)
                 if col in self.cats:
-                    percentage = (percentage=='percentage')
+                    #percentage = (percentage=='percentage')
                     fig = plot_cats_density(model, X, y, col, rule_id=rule_id, after=after, 
-                                labels=self.labels, percentage=percentage, highlights=cats)
+                                labels=self.labels, percentage=bool(percentage), highlights=cats)
                     return fig, dash.no_update
 
                 elif col in self.non_cats:
                     fig = plot_density(model, X, y, col, rule_id=rule_id, after=after, 
-                                labels=self.labels, cutoff=cutoff) 
+                                labels=self.labels, cutoff=cutoff)
                     return dash.no_update, fig
+            raise PreventUpdate
+
+        @app.callback(
+            Output('density-col-suggest-button', 'n_clicks'),
+            Input('added-num-density-rule', 'data'),
+            Input('added-cats-density-rule', 'data'),
+            State('density-col-suggest-button', 'n_clicks'),
+        )
+        def trigger_new_suggested_col(num_trigger, cats_trigger, old_clicks):
+            if old_clicks is not None:
+                return old_clicks+1
+            return 1
+
+        @app.callback(
+            Output('density-col', 'options'),
+            Input('density-sort', 'value'),
+            Input('selected-rule-id', 'value'),
+            Input('train-or-val', 'value'),
+            Input('append-or-replace', 'value'),
+            State('model-store', 'data'),
+            State('density-col', 'options'),
+        )
+        def update_density_col(sort, rule_id, train_or_val, append_or_replace, model, old_options):
+            if sort=='dataframe':
+                return [dict(label=col, value=col) for col in self.X.columns]
+            elif sort == 'alphabet':
+                return [dict(label=col, value=col) for col in sorted(self.X.columns.tolist())]
+            elif sort == 'histogram overlap':
+                model, X, y = self._get_model_X_y(model, train_or_val, rule_id, append_or_replace)
+                return [dict(label=col, value=col) for col in model._sort_cols_by_histogram_overlap(X, y)]
+            elif sort == 'gini reduction':
+                model, X, y = self._get_model_X_y(model, train_or_val, rule_id, append_or_replace)
+                return [dict(label=col, value=col) for col in model._sort_cols_by_gini_reduction(X, y)]
+            else:
+                raise ValueError(f"Wrong sort value: {sort}!")
             raise PreventUpdate
 
         @app.callback(
@@ -1034,21 +1392,37 @@ class RuleClassifierDashboard:
             Input('selected-rule-id', 'value'),
             Input('train-or-val', 'value'),
             Input('append-or-replace', 'value'),
+            Input('density-num-suggest-button', 'n_clicks'),
+            Input('density-cats-suggest-button', 'n_clicks'),
+            Input('density-cats-invert-button', 'n_clicks'),
+            Input('density-num-ruletype', 'value'), 
+            Input('density-num-cutoff', 'value'),
             State('model-store', 'data'),
             State('density-cats-cats', 'value'),
-            State('density-num-cutoff', 'value'),
+            State('density-num-cutoff', 'min'),
+            State('density-num-cutoff', 'max'),
+            State('density-cats-cats', 'options'),
         )
-        def check_cats_clicks(clickdata, col, rule_id, train_or_val, append_or_replace, model, old_cats, old_cutoff):
+        def check_cats_clicks(clickdata, col, rule_id, train_or_val, append_or_replace,
+                                num_suggest_n_clicks, cats_suggest_n_clicks, invert_n_clicks, num_ruletype,
+                                old_cutoff, model, old_cats,  cutoff_min, cutoff_max, cats_options):
             trigger = self._get_callback_trigger()
+            
+            if trigger == 'density-cats-invert-button':
+                new_cats = [cat['value'] for cat in cats_options if cat['value'] not in old_cats]
+                return new_cats, dash.no_update, dash.no_update
+
             if append_or_replace=='replace' and trigger in ['selected-rule-id', 'append-or-replace']:
                 model = self._get_model(model)
                 rule = model.get_rule(rule_id)
                 if isinstance(rule, IsInRule) or isinstance(rule, IsInSplit):
                     return rule.cats, dash.no_update, dash.no_update
                 if isinstance(rule, GreaterThan) or isinstance(rule, GreaterThanSplit):
-                    return dash.no_update, rule.cutoff, "greater_than"
+                    return dash.no_update, [rule.cutoff, cutoff_max], "greater_than"
                 if isinstance(rule, LesserThan) or isinstance(rule, LesserThanSplit):
-                    return dash.no_update, rule.cutoff, "lesser_than"
+                    return dash.no_update, [cutoff_min, rule.cutoff], "lesser_than"
+                if isinstance(rule, RangeRule) or isinstance(rule, RangeSplit):
+                    return dash.no_update, [rule.min, rule.max], "range"
             if  trigger == 'density-cats-plot':
                 clicked_cat = clickdata['points'][0]['x']
                 if old_cats is None:
@@ -1060,16 +1434,61 @@ class RuleClassifierDashboard:
                     return old_cats, dash.no_update, dash.no_update
             
             model, X, y = self._get_model_X_y(model, train_or_val, rule_id, append_or_replace) 
-            if col in self.cats:
-                return [cat for cat in old_cats if cat in X[col].unique()], dash.no_update, dash.no_update
-            elif col in self.non_cats:
-                return dash.no_update, X[col].median(), dash.no_update
+            
+            if trigger == 'density-num-ruletype':
+                if num_ruletype == 'greater_than':
+                    if old_cutoff[0] == X[col].min():
+                        return dash.no_update, [old_cutoff[1], X[col].max()], dash.no_update
+                    return dash.no_update, [old_cutoff[0], X[col].max()], dash.no_update
+                if num_ruletype == 'lesser_than':
+                    if old_cutoff[1] == X[col].max():
+                        return dash.no_update, [X[col].min(), old_cutoff[0]], dash.no_update
+                    return dash.no_update, [X[col].min(), old_cutoff[1]], dash.no_update
+                return dash.no_update, old_cutoff, dash.no_update
+            
+            if trigger == 'density-num-cutoff':
+                if num_ruletype == 'lesser_than' and old_cutoff[0] != X[col].min():
+                    return dash.no_update, [X[col].min(), old_cutoff[1]], dash.no_update
+                if num_ruletype == 'greater_than' and old_cutoff[1] != X[col].max():
+                    return dash.no_update, [old_cutoff[0], X[col].max()], dash.no_update
+                raise PreventUpdate
 
+            if not X.empty:
+                if col in self.cats:
+                    cat, gini, single_cat = model.suggest_split(X, y, col)
+                    if single_cat:
+                        return [cat], dash.no_update, dash.no_update
+                    elif cats_options:
+                        return [cat_col['value'] for cat_col in cats_options if cat_col['value'] != cat], dash.no_update, dash.no_update
+                    else:
+                        [cat_col for cat_col in X[col].unique() if cat_col != cat], dash.no_update, dash.no_update
+                elif col in self.non_cats:
+                    cutoff, gini, lesser_than = model.suggest_split(X, y, col)
+                    cutoff = self._round_cutoff(cutoff, X[col].min(), X[col].max())
+                    if lesser_than:
+                        return dash.no_update, [X[col].min(), cutoff], "lesser_than"
+                    else:
+                        return dash.no_update, [cutoff, X[col].max()], "greater_than"
+            raise PreventUpdate
+
+        @app.callback(
+            Output('density-num-suggest-button', 'n_clicks'),
+            Output('density-cats-suggest-button', 'n_clicks'),
+            Input('density-col', 'value'),
+            State('density-num-suggest-button', 'n_clicks'),
+            State('density-cats-suggest-button', 'n_clicks'),
+        )
+        def trigger_suggest_buttons_on_col(col, num_clicks, cats_clicks):
+            if col in self.cats:
+                return dash.no_update, cats_clicks+1 if cats_clicks else 1
+            elif col in self.non_cats:
+                return num_clicks+1 if num_clicks else 1, dash.no_update
             raise PreventUpdate
 
         @app.callback(
             Output('density-num-cutoff', 'min'),
             Output('density-num-cutoff', 'max'),
+            Output('density-num-cutoff', 'step'),
             Output('density-cats-cats', 'options'),
             Input('density-col', 'value'),
             Input('selected-rule-id', 'value'),
@@ -1079,13 +1498,13 @@ class RuleClassifierDashboard:
         )
         def update_density_plot(col, rule_id, train_or_val, append_or_replace, model): 
             if col is not None:
-                model = self._get_model(model) 
-                X, y = self._get_X_y(train_or_val)
+                model, X, y = self._get_model_X_y(model, train_or_val, rule_id, append_or_replace)
                 if col in self.cats:
                     cats_options = [dict(label=cat, value=cat) for cat in X[col].unique()]
-                    return dash.no_update, dash.no_update, cats_options
+                    return dash.no_update, dash.no_update, dash.no_update, cats_options
                 elif col in self.non_cats:
-                    return X[col].min(), X[col].max(), dash.no_update
+                    min_val, max_val = X[col].min(), X[col].max()
+                    return min_val, max_val, self._get_stepsize(min_val, max_val), dash.no_update
             raise PreventUpdate
 
         @app.callback(
@@ -1093,21 +1512,29 @@ class RuleClassifierDashboard:
             Input('selected-rule-id', 'value'),
             Input('parallel-cols', 'value'),
             Input('append-or-replace', 'value'),
-            Input('sort-by-overlap', 'value'),
+            Input('parallel-sort', 'value'),
             Input('train-or-val', 'value'),
             State('parallel-plot', 'figure'),
             State('model-store', 'data'),
         )
-        def return_parallel_plot(rule_id, cols, append_or_replace, sort_by_overlap, train_or_val, old_fig, model):
-            model = self._get_model(model)
-            X, y = self._get_X_y(train_or_val)
+        def return_parallel_plot(rule_id, cols, append_or_replace, sort, train_or_val, old_fig, model):
+            model, X, y = self._get_model_X_y(model, train_or_val, rule_id, append_or_replace)
             after = self._infer_after(append_or_replace)
 
-            margin = 50
-            fig = (plot_parallel_coordinates(model, X, y, rule_id, cols=cols, labels=self.labels, after=after, 
-                                                ymin=self.y.min(), ymax=self.y.max(), 
-                                                sort_by_histogram_overlap=bool(sort_by_overlap))
-                        .update_layout(margin=dict(t=margin, b=margin, l=margin, r=margin)))
+            if sort=='dataframe':
+                cols = [col for col in self.X.columns if col in cols]
+            elif sort == 'alphabet':
+                cols = sorted(cols)
+            elif sort == 'histogram overlap':
+                cols = model._sort_cols_by_histogram_overlap(X, y, cols, reverse=True)
+            elif sort == 'gini reduction':
+                cols = model._sort_cols_by_gini_reduction(X, y, cols, reverse=True)
+            else:
+                raise ValueError(f"Wrong sort value: {sort}!")
+            
+            fig = plot_parallel_coordinates(model, X, y, rule_id, cols=cols, labels=self.labels, after=after, 
+                                                ymin=self.y.min(), ymax=self.y.max())
+            fig.update_layout(margin=dict(t=50, b=50, l=50, r=50))
             
             if fig['data'] and 'dimensions' in fig['data'][0]:
                 trigger = self._get_callback_trigger()
@@ -1130,14 +1557,12 @@ class RuleClassifierDashboard:
         
         @app.callback(
             Output('parallel-prediction', 'value'),
-            Output('parallel-pie-all', 'figure'),
-            Output('parallel-pie-data', 'figure'),
-            Output('parallel-pie-selection', 'figure'),
-            Output('parallel-pie-non-selection', 'figure'),
             Output('parallel-pie-all-label', 'children'),
-            Output('parallel-pie-data-label', 'children'),
+            Output('parallel-pie-all', 'figure'),
             Output('parallel-pie-selection-label', 'children'),
-            Output('parellel-pie-non-selection-label', 'children'),
+            Output('parallel-pie-selection', 'figure'),
+            Output('parallel-pie-non-selection-label', 'children'),
+            Output('parallel-pie-non-selection', 'figure'),
             Input('parallel-plot', 'restyleData'),
             Input('selected-rule-id', 'value'),
             Input('append-or-replace', 'value'),
@@ -1154,8 +1579,7 @@ class RuleClassifierDashboard:
                 after = self._infer_after(append_or_replace)
                 pie_size = 50
 
-                pie_all = plot_label_pie(model, self.X, self.y, rule_id=0, after=False, size=pie_size)
-                pie_data = plot_label_pie(model, self.X, self.y, rule_id=rule_id, after=after, size=pie_size)
+                pie_all = plot_label_pie(model, self.X, self.y, rule_id=rule_id, after=after, size=pie_size)
 
                 X_rule, y_rule = X[rule.__rule__(X)], y[rule.__rule__(X)]
                 pie_selection = plot_label_pie(model, X_rule, y_rule, size=pie_size)
@@ -1174,15 +1598,17 @@ class RuleClassifierDashboard:
                     if isinstance(rule, PredictionRule):
                         prediction = rule.prediction
                     
-                return (str(prediction), pie_all, pie_data, pie_selection, pie_non_selection,
-                            f"All data ({len(self.X)})", f"This data ({len(X)})", 
-                            f"Selected ({len(X_rule)})", f"Not selected ({len(X)-len(X_rule)})")          
+                return (str(prediction), 
+                        f"All ({len(X)})", pie_all, 
+                        f"Selected ({len(X_rule)})", pie_selection, 
+                        f"Not selected ({len(X)-len(X_rule)})", pie_non_selection
+                     )          
             raise PreventUpdate
 
         @app.callback(
             Output('model-performance', 'children'),
             Input('update-model-performance', 'data'),
-            Input('train-or-val', 'value'),  
+            Input('train-or-val', 'value'), 
             State('model-store', 'data'), 
         )
         def update_performance_metrics(update, train_or_val, model):
@@ -1194,7 +1620,63 @@ class RuleClassifierDashboard:
                                     .assign(coverage = lambda df:df['coverage'].apply(lambda x: f"{100*x:.2f}%"))
                                     .assign(accuracy = lambda df:df['accuracy'].apply(lambda x: f"{100*x:.2f}%"))
                 )
+            raise PreventUpdate
 
+        @app.callback(
+            Output('model-performance-confmat', 'figure'),
+            Input('update-model-performance', 'data'),
+            Input('train-or-val', 'value'),  
+            Input('selected-rule-id', 'value'),
+            Input('model-performance-select', 'value'),
+            State('model-store', 'data'), 
+        )
+        def update_performance_confmat(update, train_or_val, rule_id, model_or_rule, model):
+            if update:
+                if model_or_rule == 'rule':
+                    model, X, y = self._get_model_X_y(model, train_or_val, rule_id=rule_id)
+                    return plot_confusion_matrix(model, X, y, labels=self.labels, rule_id=rule_id, rule_only=True)
+                else:
+                    model, X, y = self._get_model_X_y(model, train_or_val)
+                    return plot_confusion_matrix(model, X, y, labels=self.labels)
+
+            raise PreventUpdate
+
+        @app.callback(
+            Output('model-performance-metrics', 'children'),
+            Input('update-model-performance', 'data'),
+            Input('train-or-val', 'value'),  
+            Input('selected-rule-id', 'value'),
+            Input('model-performance-select', 'value'),
+            State('model-store', 'data'), 
+        )
+        def update_performance_metrics(update, train_or_val, rule_id, model_or_rule, model):
+            if update:
+                if model_or_rule == 'rule':
+                    model, X, y = self._get_model_X_y(model, train_or_val, rule_id=rule_id)
+                    return dbc.Table.from_dataframe(get_metrics_df(model, X, y, rule_id=rule_id, rule_only=True))
+                else:
+                    model, X, y = self._get_model_X_y(model, train_or_val)
+                    return dbc.Table.from_dataframe(get_metrics_df(model, X, y))
+
+
+            raise PreventUpdate
+
+        @app.callback(
+            Output('model-performance-coverage', 'children'),
+            Input('update-model-performance', 'data'),
+            Input('train-or-val', 'value'), 
+            Input('selected-rule-id', 'value'),
+            Input('model-performance-select', 'value'),
+            State('model-store', 'data'), 
+        )
+        def update_performance_coverage(update, train_or_val, rule_id, model_or_rule, model):
+            if update:
+                if model_or_rule == 'rule':
+                    model, X, y = self._get_model_X_y(model, train_or_val, rule_id=rule_id)
+                    return dbc.Table.from_dataframe(get_coverage_df(model, X, y, rule_id=rule_id, rule_only=True))
+                else:
+                    model, X, y = self._get_model_X_y(model, train_or_val)
+                    return dbc.Table.from_dataframe(get_coverage_df(model, X, y))
             raise PreventUpdate
 
         @app.callback(
@@ -1211,14 +1693,69 @@ class RuleClassifierDashboard:
                 model = self._get_model(model)
                 X, y = self._get_X_y(train_or_val) 
                 if scatter_text=='coverage':
-                    scatter_text = model.score_rules(X, y).drop_duplicates(subset=['rule_id'])['coverage'].apply(lambda x: f"coverage: {100*x:.2f}%").tolist()
+                    def format_cov(row):
+                        return f"coverage={100*row.coverage:.2f}% ({row.n_outputs}/{row.n_inputs})"
+
+                    scatter_text = model.score_rules(X, y).drop_duplicates(subset=['rule_id'])[['coverage', 'n_inputs', 'n_outputs']].apply(
+                                lambda row: format_cov(row), axis=1).tolist()
                 elif scatter_text=='accuracy':
                     scatter_text = model.score_rules(X, y).drop_duplicates(subset=['rule_id'])['accuracy'].apply(lambda x: f"accuracy: {100*x:.2f}%").tolist()
                 return plot_model_graph(model, X, y, color_scale=color_scale, highlight_id=highlight_id, scatter_text=scatter_text)
             raise PreventUpdate
 
+        @app.callback(
+            Output('uploaded-model', 'data'),
+            Output('upload-div', 'style'),
+            Input('upload-model', 'contents'),
+            Input('upload-button', 'n_clicks'),
+            State('upload-model', 'filename'),
+            State('upload-div', 'style'),
+        )
+        def update_output(contents, n_clicks, filename, style):
+            trigger = self._get_callback_trigger()
+            if trigger == 'upload-button':
+                if not style:
+                    return dash.no_update, dict(display="none")
+                return dash.no_update, {}
+
+            if contents is not None:
+                import base64
+                import io
+                content_type, content_string = contents.split(',')
+                decoded = base64.b64decode(content_string)
+
+                if filename.endswith(".yaml"):
+                    try:
+                        model = RuleClassifier.from_yaml(config=decoded.decode('utf-8'))
+                        return model.to_json(), dict(display="none")
+                    except:
+                        pass
+
+                elif filename.endswith(".pkl"):
+                    import pickle
+                    try:
+                        model = pickle.loads(decoded)
+                        if isinstance(model, RuleClassifier):
+                            return model.to_json(), dict(display="none")
+                    except:
+                        pass
+            raise PreventUpdate
+
+        @app.callback(
+            Output('instructions-modal', 'is_open'),
+            Input('instructions-open-button', 'n_clicks'),
+            Input('instructions-close-button', 'n_clicks')
+        )
+        def toggle_modal(open_clicks, close_clicks):
+            trigger = self._get_callback_trigger()
+            if trigger == 'instructions-open-button':
+                return True
+            elif trigger == 'instructions-close-button':
+                return False
+            raise PreventUpdate
+
     def run(self, debug=False):
-        self.app.run_server(port=self.port, use_reloader=False, debug=debug)
+        self.app.run_server(port=self.port)#, use_reloader=False, debug=debug)
 
                     
         

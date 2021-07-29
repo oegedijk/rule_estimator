@@ -7,6 +7,7 @@ __all__ = [
     'GreaterEqualThan', 
     'LesserThan', 
     'LesserEqualThan',
+    'RangeRule',
     'MultiRange',
     'MultiRangeAny'
 ]
@@ -242,7 +243,7 @@ class PredictionRule(BusinessRule):
         return pd.Series(np.full(len(X), True))
 
     def __rulerepr__(self):
-        return f"Predict all as {self.prediction}"
+        return f"All remaining predict {self.prediction}"
 
 
 class IsInRule(BusinessRule):
@@ -300,6 +301,17 @@ class LesserEqualThan(BusinessRule):
 
     def __rulerepr__(self):
         return f"If {self.col} <= {self.cutoff} then predict {self.prediction}"
+
+
+class RangeRule(BusinessRule):
+    def __init__(self, col:str, min:float, max:float, prediction:Union[float, int], default=None):
+        super().__init__()
+
+    def __rule__(self, X:pd.DataFrame):
+        return (X[self.col] >= self.min) & (X[self.col] <= self.max)
+
+    def __rulerepr__(self):
+        return f"If {self.min} <= {self.col} <= {self.max} then predict {self.prediction}"
 
 
 class MultiRange(BusinessRule):
