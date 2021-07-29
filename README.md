@@ -1,3 +1,7 @@
+
+
+https://user-images.githubusercontent.com/27999937/127470807-8ace64f1-dbce-481d-aaeb-781d29d48e2b.mp4
+
 # rule_estimator
 
 Inspired by the awesome [human learn](https://github.com/koaning/human-learn) package, 
@@ -16,7 +20,7 @@ db = RuleClassifierDashboard(X, y, val_size=0.25, labels=['Not survived', 'Survi
 db.run()
 ```
 
-![dashboard_demo.mp4](dashboard_demo.mp4)
+https://user-images.githubusercontent.com/27999937/127471110-649b86b8-89d1-4057-a47f-cd95fd0bbfb6.mp4
 
 
 This estimator can be integrated into a scikit-learn `Pipeline`, including data
