@@ -154,8 +154,8 @@ class Storable:
             else:
                 raise ValueError("config should either be a dict generated with .to_yaml(return_dict=True)"
                                 " or a yaml str generated with .to_yaml()!")
-
-        config = yaml.safe_load(open(str(Path(filepath)), "r"))
+        else:
+            config = yaml.safe_load(open(str(Path(filepath)), "r"))
         return decode_storables(config)
 
     def to_json(self, filepath:Union[Path, str]=None)->Union[str, None]:

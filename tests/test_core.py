@@ -86,12 +86,6 @@ def test_rule_classifier(model, data):
     X, y = data
     assert accuracy_score(y, model.predict(X)) > 0.9
 
-def test_model_plot(model):
-    assert isinstance(model.plot(), Figure)
-
-def test_model_plot(model, data):
-    X, y = data
-    assert isinstance(model.parallel_coordinates(X, y), Figure)
 
 def test_score_rules(model, data):
     X, y = data

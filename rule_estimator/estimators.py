@@ -17,7 +17,7 @@ from sklearn.metrics import accuracy_score, mean_squared_error
 from igraph import Graph 
 
 from .businessrule import BusinessRule 
-from .nodes import BinarySplit
+from .splits import BinarySplit
 from .rules import CaseWhen, EmptyRule
 
 
@@ -369,7 +369,7 @@ class RuleEstimator(BusinessRule):
         return description
 
     @staticmethod
-    def _sort_cols_by_histogram_overlap(X:pd.DataFrame, y:pd.Series, cols:List[str]=None, *, bins:int=25, agg:str='minimum'):
+    def _sort_cols_by_histogram_overlap(X:pd.DataFrame, y:pd.Series, cols:List[str]=None, *, bins:int=25, agg:str='minimum', reverse=False):
         def histogram_overlap(x, y, bins=10, agg='minimum', numeric=True):
             n_classes = len(np.unique(y))
             hist_overlap = 0 if agg == 'average' else 1
@@ -390,305 +390,16 @@ class RuleEstimator(BusinessRule):
 
         if cols is None:
             cols = X.columns
+        if X.empty:
+            return cols
 
         col_scores = []
         for col in cols:
             col_scores.append((col, histogram_overlap(X[col], y.values, bins=bins, agg=agg, numeric=is_numeric_dtype(X[col]))))
 
-        col_scores.sort(key=lambda x:x[1], reverse=True)
+        col_scores.sort(key=lambda x:x[1], reverse=reverse)
         return [col for col, score in col_scores]
     
-    def plot(self, X:pd.DataFrame=None, y:pd.Series=None, color_scale:str='absolute', 
-            highlight_id:int=None, scatter_text='name'):
-        """
-        Returns a plotly Figure of the rules. Uses the Reingolf-Tilford algorithm
-        to generate the tree layout. 
-
-        Args:
-            X (pd.DataFrame, optional): input dataframe. If you pass both X and y
-                then plot scatter markers will be colored by accuracy.
-            y (pd.Series, optional): input labels. If you pass both X and y
-                then plot scatter markers will be colored by accuracy.
-            color_scale (str, {'absolute', 'relative'}): If 'absolute' scale
-                the marker color from 0 to 1, which means that if all accuracies
-                are relatively high, all the markers will look grean. If 'relative'
-                markers color are scaled from lowest to highest.
-            highlight_id (int, optional): node to highlight in the graph
-            scatter_text (str, list, {'name', 'description'}): display the name
-                (.e.g. 'PredictionRule') or the description (e.g. 'Always predict 1')
-                next to the scatter markers. If you provide a list of str, with
-                the same length as the nodes, these will be displayed instead. 
-
-        """
-        try:
-            import plotly.graph_objects as go
-        except ImportError:
-            raise ImportError("Failed to load plotly, the plotting backend. "
-                              "You need to install it seperately with pip install plotly.")
-   
-        graph = self.get_igraph()
-        layout = graph.layout_reingold_tilford(mode="in", root=0)
-        nodes_x = [6*pos[0] for pos in layout]
-        nodes_y = [pos[1] for pos in layout]
-        #find the max Y in order to invert the graph:
-        nodes_y = [2*max(nodes_y)-y for y in nodes_y]
-
-        casewhen_x, casewhen_y = [], []
-        for edge in graph.es.select(casewhen=True):
-            casewhen_x += [nodes_x[edge.tuple[0]], nodes_x[edge.tuple[1]], None]
-            casewhen_y += [nodes_y[edge.tuple[0]], nodes_y[edge.tuple[1]], None]
-
-        node_true_x, node_true_y = [], []
-        for edge in graph.es.select(binary_node="if_true"):
-            node_true_x += [nodes_x[edge.tuple[0]], nodes_x[edge.tuple[1]], None]
-            node_true_y += [nodes_y[edge.tuple[0]], nodes_y[edge.tuple[1]], None]
-
-        node_false_x, node_false_y = [], []
-        for edge in graph.es.select(binary_node="if_false"):
-            node_false_x += [nodes_x[edge.tuple[0]], nodes_x[edge.tuple[1]], None]
-            node_false_y += [nodes_y[edge.tuple[0]], nodes_y[edge.tuple[1]], None]
-
-        if X is not None and y is not None:
-            rule_scores_df = self.score_rules(X, y).drop_duplicates(subset=['rule_id'], keep='first')
-            rule_accuracy = rule_scores_df['accuracy'].values
-            cmin = 0 if color_scale == 'absolute' else rule_scores_df['accuracy'].dropna().min()
-            cmax = 1 if color_scale == 'absolute' else rule_scores_df['accuracy'].dropna().max()
-            if cmin == cmax: 
-                cmin, cmax = 0, 1
-            hovertext=[f"rule:{id}<br>"
-                       f"{descr}<br>"
-                       f"Prediction:{pred}<br>"
-                       f"Accuracy:{acc:.2f}<br>"
-                       f"Coverage:{cov:.2f}<br>"
-                       f"n_inputs:{input}<br>"
-                       f"n_outputs:{output}<br>"
-                           for id, descr, pred, acc, cov, input, output in zip(
-                                   graph.vs['rule_id'], 
-                                   graph.vs['description'], 
-                                   rule_scores_df['prediction'].values,
-                                   rule_scores_df['accuracy'].values,
-                                   rule_scores_df['coverage'].values,
-                                   rule_scores_df['n_inputs'].values,
-                                   rule_scores_df['n_outputs'].values)]
-        else:
-            rule_accuracy = np.full(len(layout), np.nan)
-            cmin, cmax = 0, 1
-            hovertext = [f"rule:{id}<br>"
-                         f"{descr}<br>"
-                            for id, descr in zip(
-                                   graph.vs['rule_id'], 
-                                   graph.vs['description'])]
-            
-    
-        fig = go.Figure()
-
-        if highlight_id is not None:
-            fig.add_trace(go.Scatter(
-                        x=[nodes_x[highlight_id]],
-                        y=[nodes_y[highlight_id]],
-                        mode='markers',
-                        name='highlight',
-                        hoverinfo='none',
-                        marker=dict(
-                            symbol='circle',
-                            size=40,
-                            color='purple',
-                            opacity=0.5,
-                            line=dict(width=3, color='violet'),
-                        ),
-            ))
-
-        fig.add_trace(go.Scatter(
-                        x=casewhen_x,
-                        y=casewhen_y,
-                        mode='lines',
-                        name='connections',
-                        line=dict(color='rgb(210,210,210)', width=2, dash='dot'),
-                        hoverinfo='none'
-                        ))
-
-        fig.add_trace(go.Scatter(
-                        x=node_true_x,
-                        y=node_true_y,
-                        mode='lines',
-                        name='connections',
-                        text=[None, "if true", None] * int(len(node_true_x)/3),
-                        line=dict(color='rgb(210,210,210)', width=2, dash='dash'),
-                        hoverinfo='none'
-                        ))
-
-        for (start_x, end_x, none), (start_y, end_y, none) in zip(zip(*[iter(node_true_x)]*3), zip(*[iter(node_true_y)]*3)):
-            fig.add_annotation(x=(end_x+start_x)/2, y=(end_y+start_y)/2, text="true", showarrow=False)
-
-
-        fig.add_trace(go.Scatter(
-                        x=node_false_x,
-                        y=node_false_y,
-                        mode='lines',
-                        name='connections',
-                        text=[None, "if false", None] * int(len(node_true_x)/3),
-                        line=dict(color='rgb(210,210,210)', width=2, dash='dash'),
-                        hoverinfo='none'
-                        ))
-
-        for (start_x, end_x, none), (start_y, end_y, none) in zip(zip(*[iter(node_false_x)]*3), zip(*[iter(node_false_y)]*3)):
-            fig.add_annotation(x=(end_x+start_x)/2, y=(end_y+start_y)/2, text="false", showarrow=False)
-
-        if isinstance(scatter_text, str) and scatter_text == 'name':
-            scatter_text = graph.vs['name']
-        elif isinstance(scatter_text, str) and scatter_text == 'description':
-            scatter_text = graph.vs['description']
-        elif isinstance(scatter_text, list) and len(scatter_text) == len(nodes_x):
-            pass
-        else:
-            raise ValueError(f"ERROR: scatter_text should either be 'name', 'description' "
-                f"or a list of str of the right length, but you passed {scatter_text}!")
-
-        fig.add_trace(go.Scatter(
-                        x=nodes_x,
-                        y=nodes_y,
-                        mode='markers+text',
-                        name='nodes',
-                        marker=dict(symbol='circle',
-                                        size=18,
-                                        color=rule_accuracy, #scores_df.accuracy.values,#'#6175c1',  
-                                        colorscale="temps",
-                                        reversescale=True,
-                                        cmin=cmin,cmax=cmax,
-                                        line=dict(color='rgb(50,50,50)', width=1),
-                                    
-                                        ),
-                        text=[f"{id}: {desc}" for id, desc in zip(graph.vs['rule_id'], scatter_text)],
-                        textposition="top right",
-                        hovertemplate = "<b>%{hovertext}</b>",
-                        hovertext=hovertext,
-                        opacity=0.8
-                        ))
-
-        fig.update_layout(showlegend=False, dragmode='pan', margin=dict(b=0, t=0, l=0, r=0))
-        fig.update_xaxes(visible=False, range=(min(nodes_x)-4, max(nodes_x)+4))
-        fig.update_yaxes(visible=False)
-        return fig
-
-    def pie(self, X:pd.DataFrame, y:np.ndarray, rule_id:int=None, after=False,
-                size=120, margin=0, showlegend=False):
-        try:
-            import plotly.express as px
-            import plotly.graph_objs as go
-        except ImportError:
-            raise ImportError("Failed to load plotly, the plotting backend. "
-                              "You need to install it seperately with pip install plotly.")
-
-        if rule_id is not None:
-            X, y = self.get_rule_input(rule_id, X, y, after)
-        
-        y_vc = y.value_counts().sort_index()
-        return (go.Figure(
-                    go.Pie(
-                        labels=y_vc.index.astype(str), 
-                        values=y_vc.values, 
-                        marker=dict(colors=[px.colors.qualitative.Plotly[i] for i in y_vc.index]),
-                        sort=False
-                    )
-                )
-                .update_layout(showlegend=showlegend, width=size, height=size)
-                .update_layout(margin=dict(t=margin, b=margin, l=margin, r=margin))
-                .update_traces(textinfo='none', hoverinfo='none'))
-
-
-    def parallel_coordinates(self, X:pd.DataFrame, y:np.ndarray, rule_id:int=None, 
-                                cols:List[str]=None, labels=None, after=False,
-                                ymin=None, ymax=None, sort_by_histogram_overlap=False):
-        """generate parallel coordinates plot for data X, y. If rule_id is specified
-        then only use data that reaches the rule with rule_id. You can select
-        a sublist of columns by passing a list of cols.
-
-        Args:
-            X (pd.DataFrame): input
-            y (np.ndarray): labels
-            rule_id (int, optional): find the rule_id's with estimator.describe(). Defaults to None.
-            cols (List[str], optional): List of columns to display. Defaults to None.
-
-        Raises:
-            ImportError: If you don't have plotly installed, raises import error.
-
-        Returns:
-            plotly.graph_objs.Figure
-        """
-        try:
-            import plotly.graph_objs as go
-            import plotly.express as px
-        except ImportError:
-            raise ImportError("Failed to load plotly, the plotting backend. "
-                              "You need to install it seperately with pip install plotly.")
-
-        def encode_col(X, col):
-            if is_numeric_dtype(X[col]):
-                return dict(label=col, values=X[col])
-            else:
-                col_df = pd.DataFrame({col:reversed(y.groupby(X[col]).mean().index)})
-                index_range = [0, len(col_df)-1] if len(col_df) > 1 else [0,1]
-                return dict(range=index_range,
-                    tickvals = col_df.index.tolist(), ticktext = col_df[col].tolist(),
-                    label=col, values=X[col].replace(dict(zip(col_df[col], col_df.index))).values)
-
-        if labels is None:
-            labels = [str(i) for i in range(y.nunique())]
-
-        if rule_id is not None:
-            X, y = self.get_rule_input(rule_id, X, y, after)
-        
-        if cols is not None:
-            X = X[cols]
-
-        if sort_by_histogram_overlap:
-            X = X[self._sort_cols_by_histogram_overlap(X, y)]
-
-        if X.empty:
-            fig = go.Figure()
-            fig.update_layout(
-                xaxis =  { "visible": False },
-                yaxis = { "visible": False },
-                annotations = [{   
-                        "text": "No data!<br>Try setting after=False or selecting 'replace' instead of 'append'",
-                        "xref": "paper",
-                        "yref": "paper",
-                        "showarrow": False,
-                        "font": {"size": 14}
-                    }])
-            return fig
-
-        ymax = ymax if ymax is not None else y.max()
-        ymin = ymin if ymin is not None else y.min()
-
-        colors = px.colors.qualitative.Plotly
-        colorscale = []
-        for a, b in enumerate(np.linspace(0.0, 1.0, int(ymax)+2, endpoint=True)):
-            if b<0.01:
-                colorscale.append((b, colors[a])) 
-            elif b > 0.01 and b < 0.99:
-                colorscale.append((b, colors[a-1]))
-                colorscale.append((b, colors[a]))
-            else:
-                colorscale.append((b, colors[a-1]))
-
-        dimensions = [encode_col(X, col) for col in X.columns]
-        dimensions.append(dict(range=[0, len(labels)-1],
-                    tickvals = list(range(len(labels))), ticktext = labels,
-                    label="y", values=y))
-
-        fig = go.Figure(data=
-                    go.Parcoords(
-                        line = dict(color=y,
-                                    cmin=ymin, 
-                                    cmax=ymax,
-                                    colorscale=colorscale,
-                                    colorbar=dict(tickvals = list(range(len(labels))), ticktext = labels),
-                                    showscale=True),
-                        dimensions = dimensions
-                    )
-                )
-        return fig
           
 class RuleClassifier(RuleEstimator):
     
@@ -705,6 +416,82 @@ class RuleClassifier(RuleEstimator):
         """
         return self.rules.score_rule(X, y, is_classifier=True)
     
+    def suggest_split(self, X:pd.DataFrame, y:Union[pd.Series, np.ndarray], col:str, 
+                    rule_id:int=None, after:bool=False)->Tuple:
+        """Suggest the best gini reducing split point for feature col.
+
+        For categorical features compares each category against all others. If
+        the selected category has the lower gini then true_lowest=True.
+        For numerical features finds use depth=1 DecisionTree to find the optimum
+        split point. If the col<cutoff has the lower gini than true_lowest=True.
+
+        Returns:
+            column, weighted gini after split, true_lowest
+
+
+        """
+
+        if rule_id is not None and after:
+            X, y = self.get_rule_leftover(rule_id, X, y)
+            if len(X) == 0:
+                raise ValueError(f"No samples after application of rule {rule_id}! Try setting after=False.")
+        elif rule_id is not None:
+            X, y = self.get_rule_input(rule_id, X, y)
+
+        def calculate_gini(y:pd.Series):
+            return 1 - (y.value_counts() / len(y)).apply(lambda y: y*y).sum()
+
+        def cat_gini(cat_col:pd.Series, y:pd.Series):
+            cats = cat_col.unique()
+            min_gini = 1
+            min_cat = cats[0]
+            true_lowest = True
+            if len(cats)==1:
+                return cats[0], calculate_gini(y), True
+            for cat in cats:
+                gini_df = y.groupby(cat_col==cat).agg([calculate_gini, "count"])
+                true_gini_lowest = gini_df.loc[True, 'calculate_gini'] < gini_df.loc[False, 'calculate_gini']
+                weighted_gini = (gini_df
+                                .assign(weighted_gini = lambda df: (df['count']/df['count'].sum()) * df['calculate_gini'])
+                                .weighted_gini.sum())
+                if weighted_gini < min_gini:
+                    min_gini = weighted_gini
+                    min_cat = cat
+                    true_lowest = true_gini_lowest
+            return min_cat, min_gini, true_lowest
+
+        def num_gini(num_col:pd.Series, y:pd.Series):
+            if y.std() == 0 or num_col.std() == 0 or np.isnan(num_col.std()) or np.isnan(y.std()):
+                # if only one value present, can't calculate a split
+                return num_col.mean(), 1.0, True
+            dt = DecisionTreeClassifier(max_depth=1, max_features=1.0, max_leaf_nodes=2).fit(num_col.to_frame(), y)
+            try:
+                n_tuple = dt.tree_.value.sum(axis=1).sum(axis=1)
+                n, n_true, n_other = n_tuple
+            except:
+                raise Exception(f"failed to unpack: {n_tuple}, {num_col}, {y}")
+            gini_before, gini_true, gini_other = dt.tree_.impurity
+            weighted_gini = (n_true * gini_true + n_other * gini_other) / n
+            cutoff = dt.tree_.threshold[0]
+            true_lowest = gini_true < gini_other
+            return cutoff, weighted_gini, true_lowest
+        
+        if is_numeric_dtype(X[col]):
+            return num_gini(X[col], y)
+        else:
+            return cat_gini(X[col], y)
+    
+    def _sort_cols_by_gini_reduction(self, X:pd.DataFrame, y:pd.Series, cols:List[str]=None, reverse=False)->List:
+        col_ginis = []
+        if cols is None:
+            cols = X.columns
+        if X.empty:
+            return cols
+        for col in cols:
+            col_ginis.append((col, *self.suggest_split(X, y, col)))
+        col_ginis.sort(key=lambda x:x[2], reverse=reverse)
+        return [col[0] for col in col_ginis]
+        
     def suggest_rule(self, rule_id:int, X:pd.DataFrame, y:Union[pd.Series, np.ndarray], 
                      kind='rule', after:bool=False)->str:
         """Suggests a new rule in the place of rule with rule_id. Uses the 
