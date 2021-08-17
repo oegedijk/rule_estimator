@@ -17,6 +17,8 @@ db = RuleClassifierDashboard(X, y, val_size=0.25, labels=['Not survived', 'Survi
 db.run()
 ```
 
+Example dashboard deployed at [https://ruledashboarddemo.herokuapp.com/](https://ruledashboarddemo.herokuapp.com/)
+
 https://user-images.githubusercontent.com/27999937/127471110-649b86b8-89d1-4057-a47f-cd95fd0bbfb6.mp4
 
 
